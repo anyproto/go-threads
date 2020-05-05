@@ -23,6 +23,7 @@ import (
 	pb "github.com/textileio/go-threads/net/pb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/connectivity"
 )
 
 const (
@@ -388,8 +389,24 @@ func (s *server) pushRecord(ctx context.Context, id thread.ID, lid peer.ID, rec 
 
 // dial attempts to open a gRPC connection over libp2p to a peer.
 func (s *server) dial(ctx context.Context, peerID peer.ID, dialOpts ...grpc.DialOption) (*grpc.ClientConn, error) {
+	s.connPerPeerMutex.Lock()
+	defer s.connPerPeerMutex.Unlock()
+	if conn, exists := s.connPerPeer[peerID]; exists {
+		if conn.GetState() == connectivity.Shutdown {
+			_ = conn.Close()
+		} else {
+			return conn, nil
+		}
+	}
+
 	opts := append([]grpc.DialOption{s.getDialOption()}, dialOpts...)
-	return grpc.DialContext(ctx, peerID.Pretty(), opts...)
+	conn, err := grpc.DialContext(ctx, peerID.Pretty(), opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	s.connPerPeer[peerID] = conn
+	return conn, err
 }
 
 // getDialOption returns the WithDialer option to dial via libp2p.

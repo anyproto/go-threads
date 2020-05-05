@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"sync"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/gogo/status"
@@ -15,18 +16,25 @@ import (
 	lstore "github.com/textileio/go-threads/core/logstore"
 	"github.com/textileio/go-threads/core/thread"
 	pb "github.com/textileio/go-threads/net/pb"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 )
 
 // server implements the net gRPC server.
 type server struct {
-	net *net
-	ps  *PubSub
+	net              *net
+	ps               *PubSub
+	connPerPeer      map[peer.ID]*grpc.ClientConn
+	connPerPeerMutex sync.Mutex
 }
 
 // newServer creates a new network server.
 func newServer(n *net) (*server, error) {
-	s := &server{net: n}
+	s := &server{
+		net:              n,
+		connPerPeer:      make(map[peer.ID]*grpc.ClientConn),
+		connPerPeerMutex: sync.Mutex{},
+	}
 	ps, err := pubsub.NewGossipSub(
 		n.ctx,
 		n.host,
