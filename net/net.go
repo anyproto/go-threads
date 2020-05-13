@@ -203,6 +203,9 @@ func (n *net) GetToken(ctx context.Context, identity thread.Identity) (tok threa
 }
 
 func (n *net) CreateThread(_ context.Context, id thread.ID, opts ...core.NewThreadOption) (info thread.Info, err error) {
+	if err = id.Validate(); err != nil {
+		return
+	}
 	args := &core.NewThreadOptions{}
 	for _, opt := range opts {
 		opt(args)
@@ -267,6 +270,9 @@ func (n *net) AddThread(ctx context.Context, addr ma.Multiaddr, opts ...core.New
 	if err != nil {
 		return
 	}
+	if err = id.Validate(); err != nil {
+		return
+	}
 	if err = n.ensureUnique(id); err != nil {
 		return
 	}
@@ -316,6 +322,9 @@ func (n *net) AddThread(ctx context.Context, addr ma.Multiaddr, opts ...core.New
 }
 
 func (n *net) GetThread(_ context.Context, id thread.ID, opts ...core.ThreadOption) (info thread.Info, err error) {
+	if err = id.Validate(); err != nil {
+		return
+	}
 	args := &core.ThreadOptions{}
 	for _, opt := range opts {
 		opt(args)
@@ -364,6 +373,9 @@ func (n *net) getThreadSemaphore(id thread.ID) chan struct{} {
 }
 
 func (n *net) PullThread(ctx context.Context, id thread.ID, opts ...core.ThreadOption) error {
+	if err := id.Validate(); err != nil {
+		return err
+	}
 	args := &core.ThreadOptions{}
 	for _, opt := range opts {
 		opt(args)
@@ -449,6 +461,9 @@ func (n *net) pullThreadUnsafe(ctx context.Context, id thread.ID) error {
 }
 
 func (n *net) DeleteThread(ctx context.Context, id thread.ID, opts ...core.ThreadOption) error {
+	if err := id.Validate(); err != nil {
+		return err
+	}
 	args := &core.ThreadOptions{}
 	for _, opt := range opts {
 		opt(args)
@@ -500,6 +515,9 @@ func (n *net) deleteThread(ctx context.Context, id thread.ID) error {
 }
 
 func (n *net) AddReplicator(ctx context.Context, id thread.ID, paddr ma.Multiaddr, opts ...core.ThreadOption) (pid peer.ID, err error) {
+	if err = id.Validate(); err != nil {
+		return
+	}
 	args := &core.ThreadOptions{}
 	for _, opt := range opts {
 		opt(args)
@@ -599,6 +617,9 @@ func getDialable(addr ma.Multiaddr) (ma.Multiaddr, error) {
 }
 
 func (n *net) CreateRecord(ctx context.Context, id thread.ID, body format.Node, opts ...core.ThreadOption) (r core.ThreadRecord, err error) {
+	if err = id.Validate(); err != nil {
+		return
+	}
 	args := &core.ThreadOptions{}
 	for _, opt := range opts {
 		opt(args)
@@ -622,7 +643,10 @@ func (n *net) CreateRecord(ctx context.Context, id thread.ID, body format.Node, 
 
 	log.Debugf("added record %s (thread=%s, log=%s)", rec.Cid(), id, lg.ID)
 
-	r = NewRecord(rec, id, lg.ID)
+	r, err = NewRecord(rec, id, lg.ID)
+	if err != nil {
+		return
+	}
 	if err = n.bus.SendWithTimeout(r, notifyTimeout); err != nil {
 		return
 	}
@@ -633,6 +657,9 @@ func (n *net) CreateRecord(ctx context.Context, id thread.ID, body format.Node, 
 }
 
 func (n *net) AddRecord(ctx context.Context, id thread.ID, lid peer.ID, rec core.Record, opts ...core.ThreadOption) error {
+	if err := id.Validate(); err != nil {
+		return err
+	}
 	args := &core.ThreadOptions{}
 	for _, opt := range opts {
 		opt(args)
@@ -667,6 +694,9 @@ func (n *net) AddRecord(ctx context.Context, id thread.ID, lid peer.ID, rec core
 }
 
 func (n *net) GetRecord(ctx context.Context, id thread.ID, rid cid.Cid, opts ...core.ThreadOption) (core.Record, error) {
+	if err := id.Validate(); err != nil {
+		return nil, err
+	}
 	args := &core.ThreadOptions{}
 	for _, opt := range opts {
 		opt(args)
@@ -695,8 +725,11 @@ type Record struct {
 }
 
 // NewRecord returns a record with the given values.
-func NewRecord(r core.Record, id thread.ID, lid peer.ID) core.ThreadRecord {
-	return &Record{Record: r, threadID: id, logID: lid}
+func NewRecord(r core.Record, id thread.ID, lid peer.ID) (core.ThreadRecord, error) {
+	if err := id.Validate(); err != nil {
+		return nil, err
+	}
+	return &Record{Record: r, threadID: id, logID: lid}, nil
 }
 
 func (r *Record) Value() core.Record {
@@ -722,6 +755,9 @@ func (n *net) Subscribe(ctx context.Context, opts ...core.SubOption) (<-chan cor
 
 	filter := make(map[thread.ID]struct{})
 	for _, id := range args.ThreadIDs {
+		if err := id.Validate(); err != nil {
+			return nil, err
+		}
 		if id.Defined() {
 			filter[id] = struct{}{}
 		}
@@ -761,6 +797,9 @@ func (n *net) subscribe(ctx context.Context, filter map[thread.ID]struct{}) (<-c
 }
 
 func (n *net) ConnectApp(a app.App, threadID thread.ID) (*app.Connector, error) {
+	if err := threadID.Validate(); err != nil {
+		return nil, err
+	}
 	info, err := n.getThreadWithAddrs(threadID)
 	if err != nil {
 		return nil, fmt.Errorf("error getting thread %s: %v", threadID, err)
@@ -772,6 +811,9 @@ func (n *net) ConnectApp(a app.App, threadID thread.ID) (*app.Connector, error) 
 
 // PutRecord adds an existing record. This method is thread-safe
 func (n *net) PutRecord(ctx context.Context, id thread.ID, lid peer.ID, rec core.Record) error {
+	if err := id.Validate(); err != nil {
+		return err
+	}
 	tsph := n.getThreadSemaphore(id)
 	tsph <- struct{}{}
 	defer func() { <-tsph }()
@@ -843,7 +885,11 @@ func (n *net) putRecord(ctx context.Context, id thread.ID, lid peer.ID, rec core
 		if err = n.store.SetHead(id, lg.ID, r.Cid()); err != nil {
 			return err
 		}
-		if err = n.bus.SendWithTimeout(NewRecord(r, id, lg.ID), notifyTimeout); err != nil {
+		record, err := NewRecord(r, id, lg.ID)
+		if err != nil {
+			return err
+		}
+		if err = n.bus.SendWithTimeout(record, notifyTimeout); err != nil {
 			return err
 		}
 	}
