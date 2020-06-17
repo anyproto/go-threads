@@ -164,6 +164,10 @@ func (n *net) Host() host.Host {
 	return n.host
 }
 
+func (n *net) RPC() *grpc.Server {
+	return n.rpc
+}
+
 func (n *net) Store() lstore.Logstore {
 	return n.store
 }
