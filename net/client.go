@@ -10,6 +10,7 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/gogo/status"
+	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/ipfs/go-cid"
 	"github.com/libp2p/go-libp2p-core/crypto"
 	"github.com/libp2p/go-libp2p-core/peer"
@@ -403,9 +404,14 @@ func (s *server) dial(peerID peer.ID) (pb.ServiceClient, error) {
 		}
 	}
 
+	var opts = []grpc.DialOption{s.getLibp2pDialer(), grpc.WithInsecure()}
+	if s.net.metrics {
+		opts = append(opts, grpc.WithUnaryInterceptor(grpc_prometheus.UnaryClientInterceptor), grpc.WithStreamInterceptor(grpc_prometheus.StreamClientInterceptor))
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), DialTimeout)
 	defer cancel()
-	conn, err := grpc.DialContext(ctx, peerID.Pretty(), s.getLibp2pDialer(), grpc.WithInsecure())
+	conn, err := grpc.DialContext(ctx, peerID.Pretty(), opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to DialContext: %s", err.Error())
 	}

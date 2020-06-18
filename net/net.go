@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/ipfs/go-cid"
 	bs "github.com/ipfs/go-ipfs-blockstore"
 	format "github.com/ipfs/go-ipld-format"
@@ -71,11 +72,14 @@ type net struct {
 
 	pullLock  sync.Mutex
 	pullLocks map[thread.ID]chan struct{}
+
+	metrics bool
 }
 
 // Config is used to specify thread instance options.
 type Config struct {
-	Debug bool
+	Debug   bool
+	Metrics bool
 }
 
 // NewNetwork creates an instance of net from the given host and thread store.
@@ -89,6 +93,9 @@ func NewNetwork(ctx context.Context, h host.Host, bstore bs.Blockstore, ds forma
 			return nil, err
 		}
 	}
+	if conf.Metrics {
+		grpc_prometheus.EnableClientHandlingTimeHistogram()
+	}
 
 	ctx, cancel := context.WithCancel(ctx)
 	t := &net{
@@ -101,6 +108,7 @@ func NewNetwork(ctx context.Context, h host.Host, bstore bs.Blockstore, ds forma
 		ctx:        ctx,
 		cancel:     cancel,
 		pullLocks:  make(map[thread.ID]chan struct{}),
+		metrics:    conf.Metrics,
 	}
 	t.server, err = newServer(t)
 	if err != nil {

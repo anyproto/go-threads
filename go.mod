@@ -16,8 +16,9 @@ require (
 	github.com/gogo/googleapis v1.3.1 // indirect
 	github.com/gogo/protobuf v1.3.1
 	github.com/gogo/status v1.1.0
-	github.com/golang/protobuf v1.3.3
+	github.com/golang/protobuf v1.4.2
 	github.com/grpc-ecosystem/go-grpc-middleware v1.2.0
+	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
 	github.com/hashicorp/go-multierror v1.1.0
 	github.com/hashicorp/golang-lru v0.5.4
 	github.com/hsanjuan/ipfs-lite v1.1.11
@@ -56,6 +57,7 @@ require (
 	github.com/phayes/freeport v0.0.0-20180830031419-95f893ade6f2
 	github.com/pkg/term v0.0.0-20190109203006-aa71e9d9e942 // indirect
 	github.com/polydawn/refmt v0.0.0-20190807091052-3d65705ee9f1 // indirect
+	github.com/prometheus/client_golang v1.7.0 // indirect
 	github.com/rs/cors v1.7.0 // indirect
 	github.com/smartystreets/goconvey v0.0.0-20190710185942-9d28bd7c0945 // indirect
 	github.com/tidwall/gjson v1.3.5
