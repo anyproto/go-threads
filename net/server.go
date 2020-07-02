@@ -23,16 +23,20 @@ import (
 // server implements the net gRPC server.
 type server struct {
 	sync.Mutex
-	net   *net
-	ps    *PubSub
-	conns map[peer.ID]*grpc.ClientConn
+	net     *net
+	ps      *PubSub
+	policy  DialPolicy
+	tracker PeerTracker
+	conns   map[peer.ID]*grpc.ClientConn
 }
 
 // newServer creates a new network server.
-func newServer(n *net) (*server, error) {
+func newServer(n *net, policy DialPolicy, tracker PeerTracker) (*server, error) {
 	s := &server{
-		net:   n,
-		conns: make(map[peer.ID]*grpc.ClientConn),
+		net:     n,
+		policy:  policy,
+		tracker: tracker,
+		conns:   make(map[peer.ID]*grpc.ClientConn),
 	}
 	ps, err := pubsub.NewGossipSub(
 		n.ctx,
