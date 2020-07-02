@@ -61,8 +61,12 @@ func (s *server) getLogs(ctx context.Context, id thread.ID, pid peer.ID) ([]thre
 
 	client, err := s.dial(pid)
 	if err != nil {
+		if errors.Is(err, ErrSkipDial) {
+			return nil, nil
+		}
 		return nil, err
 	}
+
 	cctx, cancel := context.WithTimeout(ctx, DialTimeout)
 	defer cancel()
 	reply, err := client.GetLogs(cctx, req)
@@ -109,7 +113,7 @@ func (s *server) pushLog(ctx context.Context, id thread.ID, lg thread.LogInfo, p
 
 	client, err := s.dial(pid)
 	if err != nil {
-		return fmt.Errorf("dial %s failed: %s", pid, err)
+		return fmt.Errorf("dial %s failed: %w", pid, err)
 	}
 	cctx, cancel := context.WithTimeout(ctx, DialTimeout)
 	defer cancel()
@@ -229,9 +233,14 @@ func (s *server) getRecords(ctx context.Context, id thread.ID, lid peer.ID, offs
 
 			client, err := s.dial(pid)
 			if err != nil {
-				log.Errorf("dial %s failed: %s", p, err)
+				if errors.Is(err, ErrSkipDial) {
+					log.Warnf("dialing %s skipped", p)
+				} else {
+					log.Errorf("dial %s failed: %s", p, err)
+				}
 				return
 			}
+
 			cctx, cancel := context.WithTimeout(ctx, DialTimeout)
 			defer cancel()
 			reply, err := client.GetRecords(cctx, req)
@@ -334,9 +343,14 @@ func (s *server) pushRecord(ctx context.Context, id thread.ID, lid peer.ID, rec 
 
 			client, err := s.dial(pid)
 			if err != nil {
-				log.Errorf("dial %s failed: %s", p, err)
+				if errors.Is(err, ErrSkipDial) {
+					log.Warnf("dialing %s skipped", p)
+				} else {
+					log.Errorf("dial %s failed: %s", p, err)
+				}
 				return
 			}
+
 			cctx, cancel := context.WithTimeout(context.Background(), DialTimeout)
 			defer cancel()
 			if _, err = client.PushRecord(cctx, req); err != nil {
@@ -383,28 +397,69 @@ func (s *server) pushRecord(ctx context.Context, id thread.ID, lid peer.ID, rec 
 	return nil
 }
 
-// dial attempts to open a gRPC connection over libp2p to a peer.
 func (s *server) dial(peerID peer.ID) (pb.ServiceClient, error) {
 	s.Lock()
 	defer s.Unlock()
 	conn, ok := s.conns[peerID]
 	if ok {
-		if conn.GetState() == connectivity.Shutdown {
+		switch cs := conn.GetState(); cs {
+		case connectivity.Idle, connectivity.Connecting, connectivity.Ready:
+			if err := s.tracker.Update(peerID, peerConnected()); err != nil {
+				log.Errorf("error updating peer presence info: %v", err)
+			}
+			return pb.NewServiceClient(conn), nil
+		case connectivity.TransientFailure:
+			if !s.policy.InterruptFailed() {
+				return pb.NewServiceClient(conn), nil
+			}
+			fallthrough
+		case connectivity.Shutdown:
+			delete(s.conns, peerID)
 			if err := conn.Close(); err != nil {
 				log.Errorf("error closing connection: %v", err)
 			}
-		} else {
-			return pb.NewServiceClient(conn), nil
+		default:
+			return nil, fmt.Errorf("GRPC-connection uknown state: %s", cs.String())
 		}
 	}
+
+	// decide if we should dial or hold back, because peer may be inactive
+	if shouldDial, err := s.decideDial(peerID); err != nil {
+		log.Errorf("error deciding on dial %s: %v", peerID, err)
+	} else if !shouldDial {
+		log.Debugf("skip dialing of %s", peerID)
+		return nil, ErrSkipDial
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), DialTimeout)
 	defer cancel()
 	conn, err := grpc.DialContext(ctx, peerID.Pretty(), s.getLibp2pDialer(), grpc.WithInsecure())
 	if err != nil {
+		// register last connection attempt
+		if err := s.tracker.Update(peerID, peerFailed()); err != nil {
+			log.Errorf("error updating peer tracking info: %v", err)
+		}
 		return nil, err
 	}
 	s.conns[peerID] = conn
+
+	// register last moment when peer was accessible
+	if err := s.tracker.Update(peerID, peerConnected()); err != nil {
+		log.Errorf("error updating peer tracking info: %v", err)
+	}
+
 	return pb.NewServiceClient(conn), nil
+}
+
+func (s *server) decideDial(id peer.ID) (bool, error) {
+	var at = time.Now().Unix()
+
+	info, err := s.tracker.Get(id)
+	if err != nil && !errors.Is(err, ErrPeerActivityNotFound) {
+		return false, fmt.Errorf("tracking info retrieval failed: %w", err)
+	}
+
+	return s.policy.Decide(info, at), nil
 }
 
 // getLibp2pDialer returns a WithContextDialer option for libp2p dialing.

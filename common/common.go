@@ -118,9 +118,17 @@ func DefaultNetwork(repoPath string, opts ...NetOption) (NetBoostrapper, error) 
 		return nil, err
 	}
 
+	// no dial policy by default
+	policy := net.NewStubPolicy()
+
+	// no peer tracking by default
+	tracker := net.NewStubTracker()
+
 	// Build a network
 	api, err := net.NewNetwork(ctx, h, lite.BlockStore(), lite, tstore, net.Config{
-		Debug: config.Debug,
+		Debug:   config.Debug,
+		Policy:  policy,
+		Tracker: tracker,
 	}, config.GRPCOptions...)
 	if err != nil {
 		cancel()
