@@ -437,7 +437,9 @@ func makeNetwork(t *testing.T) core.Net {
 		dag.NewDAGService(bsrv),
 		tstore.NewLogstore(),
 		Config{
-			Debug: true,
+			Debug:   true,
+			Policy:  NewStubPolicy(),
+			Tracker: NewStubTracker(),
 		})
 	if err != nil {
 		t.Fatal(err)
