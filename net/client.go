@@ -403,6 +403,8 @@ func (s *server) dial(peerID peer.ID) (pb.ServiceClient, error) {
 	conn, ok := s.conns[peerID]
 	if ok {
 		switch cs := conn.GetState(); cs {
+		case connectivity.Idle, connectivity.Connecting:
+			return pb.NewServiceClient(conn), nil
 		case connectivity.Ready:
 			if err := s.tracker.Update(peerID, peerActivityNow(true, false)); err != nil {
 				log.Errorf("error updating peer activity: %v", err)
