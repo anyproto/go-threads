@@ -19,7 +19,7 @@ var (
 	// ErrPeerActivityNotFound indicates activity record was not found for requested peer.
 	ErrPeerActivityNotFound = errors.New("peer activity not found")
 
-	// root key for storing per-peer activity in peerstore.
+	// Root key for storing peers activity in peerstore.
 	psTrackerKey = "/peer/activity"
 )
 
@@ -38,20 +38,15 @@ type PeerActivity struct {
 	LastTriedAt int64
 }
 
-// Helper used when peer connection succeeded.
-func peerConnected() PeerActivity {
+func peerActivityNow(seen, tried bool) (pa PeerActivity) {
 	var now = time.Now().Unix()
-	return PeerActivity{
-		LastSeenAt:  now,
-		LastTriedAt: now,
+	if seen {
+		pa.LastSeenAt = now
 	}
-}
-
-// Helper used when peer connection failed.
-func peerFailed() PeerActivity {
-	var now = time.Now().Unix()
-	// update last attempt only
-	return PeerActivity{LastTriedAt: now}
+	if tried {
+		pa.LastTriedAt = now
+	}
+	return
 }
 
 /* Peer tracking */
@@ -136,7 +131,7 @@ func (w trackingWrapper) Accept() (stdNet.Conn, error) {
 		return nil, fmt.Errorf("bad peer ID %s: %w", addr, err)
 	}
 
-	if err := w.t.Update(peerID, peerConnected()); err != nil {
+	if err := w.t.Update(peerID, peerActivityNow(true, false)); err != nil {
 		return nil, fmt.Errorf("update tracking information: %w", err)
 	}
 

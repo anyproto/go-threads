@@ -403,9 +403,9 @@ func (s *server) dial(peerID peer.ID) (pb.ServiceClient, error) {
 	conn, ok := s.conns[peerID]
 	if ok {
 		switch cs := conn.GetState(); cs {
-		case connectivity.Idle, connectivity.Connecting, connectivity.Ready:
-			if err := s.tracker.Update(peerID, peerConnected()); err != nil {
-				log.Errorf("error updating peer presence info: %v", err)
+		case connectivity.Ready:
+			if err := s.tracker.Update(peerID, peerActivityNow(true, false)); err != nil {
+				log.Errorf("error updating peer activity: %v", err)
 			}
 			return pb.NewServiceClient(conn), nil
 		case connectivity.TransientFailure:
@@ -418,8 +418,6 @@ func (s *server) dial(peerID peer.ID) (pb.ServiceClient, error) {
 			if err := conn.Close(); err != nil {
 				log.Errorf("error closing connection: %v", err)
 			}
-		default:
-			return nil, fmt.Errorf("GRPC-connection uknown state: %s", cs.String())
 		}
 	}
 
@@ -435,16 +433,14 @@ func (s *server) dial(peerID peer.ID) (pb.ServiceClient, error) {
 	defer cancel()
 	conn, err := grpc.DialContext(ctx, peerID.Pretty(), s.getLibp2pDialer(), grpc.WithInsecure())
 	if err != nil {
-		// register last connection attempt
-		if err := s.tracker.Update(peerID, peerFailed()); err != nil {
-			log.Errorf("error updating peer tracking info: %v", err)
-		}
+		// Do not register activity, i.e. error is unrelated to peer's status.
 		return nil, err
 	}
 	s.conns[peerID] = conn
 
-	// register last moment when peer was accessible
-	if err := s.tracker.Update(peerID, peerConnected()); err != nil {
+	// register just connection attempt - we don't know connection state
+	// at the moment and can't say for sure if peer is accessible or not
+	if err := s.tracker.Update(peerID, peerActivityNow(false, true)); err != nil {
 		log.Errorf("error updating peer tracking info: %v", err)
 	}
 
