@@ -196,8 +196,8 @@ type ProbabilisticPolicyConfig struct {
 	DampeningFactor float64 // C_d
 }
 
-func DefaultProbabilisticPolicyConfig() ProbabilisticPolicyConfig {
-	return ProbabilisticPolicyConfig{
+func DefaultProbabilisticPolicyConfig() *ProbabilisticPolicyConfig {
+	return &ProbabilisticPolicyConfig{
 		ProbabilityLowBound:    0.05,
 		RecentlySeenPhaseStart: 10 * time.Second,
 		RecentlySeenPhaseEnd:   30 * time.Second,
@@ -211,7 +211,7 @@ func DefaultProbabilisticPolicyConfig() ProbabilisticPolicyConfig {
 
 // Randomized policy with dial probability depending on both offline
 // period duration and the time elapsed from the last connection attempt.
-func NewProbabilisticPolicy(conf ProbabilisticPolicyConfig) *probabilisticPolicy {
+func NewProbabilisticPolicy(conf *ProbabilisticPolicyConfig) *probabilisticPolicy {
 	dampSlope := (1.0 - conf.DampeningFactor) / (conf.DampeningPhaseEnd.Seconds() - conf.DampeningPhaseStart.Seconds())
 	rsSlope := math.Log(conf.ProbabilityLowBound / (conf.RecentlySeenPhaseStart.Seconds() - conf.RecentlySeenPhaseEnd.Seconds()))
 	ltSlope := 1.0 / (conf.LongTriedPhaseEnd.Seconds() - conf.LongTriedPhaseStart.Seconds())

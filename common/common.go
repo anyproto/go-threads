@@ -118,11 +118,18 @@ func DefaultNetwork(repoPath string, opts ...NetOption) (NetBoostrapper, error) 
 		return nil, err
 	}
 
-	// no dial policy by default
-	policy := net.NewStubPolicy()
+	var (
+		policy  net.DialPolicy
+		tracker net.PeerTracker
+	)
 
-	// no peer tracking by default
-	tracker := net.NewStubTracker()
+	if dp := config.DialPolicy; dp != nil {
+		policy = net.NewProbabilisticPolicy(dp)
+		tracker = net.NewPeerStoreTracker(h.Peerstore())
+	} else {
+		policy = net.NewStubPolicy()
+		tracker = net.NewStubTracker()
+	}
 
 	// Build a network
 	api, err := net.NewNetwork(ctx, h, lite.BlockStore(), lite, tstore, net.Config{
@@ -155,6 +162,7 @@ type NetConfig struct {
 	HostAddr    ma.Multiaddr
 	ConnManager cconnmgr.ConnManager
 	Debug       bool
+	DialPolicy  *net.ProbabilisticPolicyConfig
 	GRPCOptions []grpc.ServerOption
 }
 
@@ -184,6 +192,13 @@ func WithNetDebug(enabled bool) NetOption {
 func WithNetGRPCOptions(opts ...grpc.ServerOption) NetOption {
 	return func(c *NetConfig) error {
 		c.GRPCOptions = opts
+		return nil
+	}
+}
+
+func WitAdaptiveDial(dc *net.ProbabilisticPolicyConfig) NetOption {
+	return func(c *NetConfig) error {
+		c.DialPolicy = dc
 		return nil
 	}
 }
