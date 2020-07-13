@@ -75,8 +75,10 @@ type net struct {
 
 // Config is used to specify thread instance options.
 type Config struct {
-	Debug  bool
-	PubSub bool
+	Debug   bool
+	PubSub  bool
+	Policy  DialPolicy
+	Tracker PeerTracker
 }
 
 // NewNetwork creates an instance of net from the given host and thread store.
@@ -103,12 +105,14 @@ func NewNetwork(ctx context.Context, h host.Host, bstore bs.Blockstore, ds forma
 		cancel:     cancel,
 		pullLocks:  make(map[thread.ID]chan struct{}),
 	}
-	t.server, err = newServer(t, conf.PubSub)
+	t.server, err = newServer(t, conf.PubSub, conf.Policy, conf.Tracker)
 	if err != nil {
 		return nil, err
 	}
 
 	listener, err := gostream.Listen(h, thread.Protocol)
+	listener = TrackIncomingPeers(listener, conf.Tracker)
+
 	if err != nil {
 		return nil, err
 	}
@@ -653,7 +657,11 @@ func (n *net) AddReplicator(ctx context.Context, id thread.ID, paddr ma.Multiadd
 			}
 			for _, lg := range managedLogs {
 				if err = n.server.pushLog(ctx, info.ID, lg, pid, nil, nil); err != nil {
-					log.Errorf("error pushing log %s to %s", lg.ID, p)
+					if errors.Is(err, ErrSkipDial) {
+						log.Warnf("pushing log %s to %s skipped", lg.ID, p)
+					} else {
+						log.Errorf("error pushing log %s to %s", lg.ID, p)
+					}
 				}
 			}
 		}(addr)

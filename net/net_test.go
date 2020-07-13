@@ -439,6 +439,8 @@ func makeNetwork(t *testing.T) core.Net {
 		Config{
 			Debug:  true,
 			PubSub: true,
+			Policy:  NewStubPolicy(),
+			Tracker: NewStubTracker(),
 		})
 	if err != nil {
 		t.Fatal(err)
