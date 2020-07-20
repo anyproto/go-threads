@@ -29,7 +29,7 @@ import (
 
 var (
 	// DialTimeout is the max time duration to wait when dialing a peer.
-	DialTimeout = time.Millisecond * 10
+	DialTimeout = time.Second * 5
 	PushTimeout = time.Second * 60
 	PullTimeout = time.Second * 30
 )
