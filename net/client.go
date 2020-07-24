@@ -30,8 +30,8 @@ import (
 var (
 	// DialTimeout is the max time duration to wait when dialing a peer.
 	DialTimeout = time.Second * 5
-	PushTimeout = time.Second * 60
-	PullTimeout = time.Second * 30
+	PushTimeout = time.Minute * 10
+	PullTimeout = time.Minute * 60
 )
 
 // getLogs in a thread.
@@ -404,7 +404,7 @@ func (s *server) dial(peerID peer.ID) (pb.ServiceClient, error) {
 		}
 	}
 
-	var opts = []grpc.DialOption{s.getLibp2pDialer(), grpc.WithInsecure()}
+	var opts = []grpc.DialOption{s.getLibp2pDialer(), grpc.WithInsecure(), grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(1024*1024*1024*10), grpc.MaxCallSendMsgSize(1024*1024*1024*10))}
 	if s.net.metrics {
 		opts = append(opts, grpc.WithUnaryInterceptor(grpc_prometheus.UnaryClientInterceptor), grpc.WithStreamInterceptor(grpc_prometheus.StreamClientInterceptor))
 	}
