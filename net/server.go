@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/gogo/status"
@@ -28,6 +29,11 @@ type server struct {
 	policy  DialPolicy
 	tracker PeerTracker
 	conns   map[peer.ID]*grpc.ClientConn
+
+	// for debugging dial policy only
+	totalDurationOnErrDials uint64
+	totalCountOnErrDials    uint64
+	dumpPeriod              time.Duration
 }
 
 // newServer creates a new network server.
@@ -37,6 +43,8 @@ func newServer(n *net, enablePubSub bool, policy DialPolicy, tracker PeerTracker
 		policy:  policy,
 		tracker: tracker,
 		conns:   make(map[peer.ID]*grpc.ClientConn),
+
+		dumpPeriod: 10 * time.Minute,
 	}
 
 	if enablePubSub {
@@ -60,6 +68,13 @@ func newServer(n *net, enablePubSub bool, policy DialPolicy, tracker PeerTracker
 			}
 		}
 	}
+
+	go func() {
+		t := time.NewTicker(s.dumpPeriod)
+		for range t.C {
+			s.logErrDialsDuration()
+		}
+	}()
 
 	return s, nil
 }

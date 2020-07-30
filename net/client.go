@@ -6,6 +6,7 @@ import (
 	"fmt"
 	nnet "net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gogo/protobuf/proto"
@@ -402,22 +403,51 @@ func (s *server) pushRecord(ctx context.Context, id thread.ID, lid peer.ID, rec 
 	return nil
 }
 
-func (s *server) dial(peerID peer.ID) (pb.ServiceClient, error) {
+func (s *server) logErrDialsDuration() {
+	errDialsTotal := atomic.SwapUint64(&s.totalCountOnErrDials, 0)
+	errDialsSumDuration := atomic.SwapUint64(&s.totalDurationOnErrDials, 0)
+
+	if errDialsTotal == 0 {
+		log.Debugf("[dial tracker] no failed dials during the last %v", s.dumpPeriod)
+		return
+	}
+
+	log.Infof("[dial tracker] %d failed dials during the last %v, total: %v, average: %v",
+		errDialsTotal, s.dumpPeriod, time.Duration(errDialsSumDuration), time.Duration(errDialsSumDuration/errDialsTotal))
+}
+
+func (s *server) dial(peerID peer.ID) (client pb.ServiceClient, err error) {
 	s.Lock()
 	defer s.Unlock()
+
+	// TODO remove after debugging
+	started := time.Now()
+	defer func() {
+		if err == nil {
+			return
+		}
+
+		elapsed := time.Now().Sub(started)
+		atomic.AddUint64(&s.totalCountOnErrDials, 1)
+		atomic.AddUint64(&s.totalDurationOnErrDials, uint64(elapsed.Nanoseconds()))
+	}()
+
 	conn, ok := s.conns[peerID]
 	if ok {
 		switch cs := conn.GetState(); cs {
 		case connectivity.Idle, connectivity.Connecting:
-			return pb.NewServiceClient(conn), nil
+			client = pb.NewServiceClient(conn)
+			return
 		case connectivity.Ready:
 			if err := s.tracker.Update(peerID, peerActivityNow(true, false)); err != nil {
 				log.Errorf("error updating peer activity: %v", err)
 			}
-			return pb.NewServiceClient(conn), nil
+			client = pb.NewServiceClient(conn)
+			return
 		case connectivity.TransientFailure:
 			if !s.policy.InterruptFailed() {
-				return pb.NewServiceClient(conn), nil
+				client = pb.NewServiceClient(conn)
+				return
 			}
 			fallthrough
 		case connectivity.Shutdown:
@@ -429,19 +459,21 @@ func (s *server) dial(peerID peer.ID) (pb.ServiceClient, error) {
 	}
 
 	// decide if we should dial or hold back, because peer may be inactive
-	if shouldDial, err := s.decideDial(peerID); err != nil {
-		log.Errorf("error deciding on dial %s: %v", peerID, err)
+	if shouldDial, e := s.decideDial(peerID); e != nil {
+		log.Errorf("error deciding on dial %s: %v", peerID, e)
+		err = nil
 	} else if !shouldDial {
 		log.Debugf("skip dialing of %s", peerID)
-		return nil, ErrSkipDial
+		err = ErrSkipDial
+		return
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), DialTimeout)
 	defer cancel()
-	conn, err := grpc.DialContext(ctx, peerID.Pretty(), s.getLibp2pDialer(), grpc.WithInsecure())
+	conn, err = grpc.DialContext(ctx, peerID.Pretty(), s.getLibp2pDialer(), grpc.WithInsecure())
 	if err != nil {
 		// Do not register activity, i.e. error is unrelated to peer's status.
-		return nil, err
+		return
 	}
 	s.conns[peerID] = conn
 
