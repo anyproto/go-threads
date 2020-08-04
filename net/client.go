@@ -395,7 +395,8 @@ func (s *server) dial(peerID peer.ID) (pb.ServiceClient, error) {
 	defer s.Unlock()
 	conn, ok := s.conns[peerID]
 	if ok {
-		if conn.GetState() == connectivity.Shutdown {
+		if conn.GetState() == connectivity.Shutdown || conn.GetState() == connectivity.TransientFailure {
+			log.Debugf("closing the existing connection to %s in state %s", peerID.String(), conn.GetState().String())
 			if err := conn.Close(); err != nil {
 				log.Errorf("error closing connection: %v", err)
 			}
