@@ -405,7 +405,7 @@ func (s *server) dial(peerID peer.ID) (pb.ServiceClient, error) {
 		}
 	}
 
-	var opts = []grpc.DialOption{s.getLibp2pDialer(), grpc.WithInsecure(), grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(1024*1024*1024*10), grpc.MaxCallSendMsgSize(1024*1024*1024*10))}
+	var opts = []grpc.DialOption{s.getLibp2pDialer(), grpc.WithInsecure(), grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(1024*1024*10), grpc.MaxCallSendMsgSize(1024*1024*10))}
 	if s.net.metrics {
 		opts = append(opts, grpc.WithUnaryInterceptor(grpc_prometheus.UnaryClientInterceptor), grpc.WithStreamInterceptor(grpc_prometheus.StreamClientInterceptor))
 	}
