@@ -14,8 +14,8 @@ import (
 // defined filters. The DB *won't* wait for slow receivers, so if the
 // channel is full, the action will be dropped.
 func (d *DB) Listen(los ...ListenOption) (Listener, error) {
-	d.lock.Lock()
-	defer d.lock.Unlock()
+	d.txnlock.Lock()
+	defer d.txnlock.Unlock()
 	if d.closed {
 		return nil, fmt.Errorf("can't listen on closed DB")
 	}
@@ -27,10 +27,6 @@ func (d *DB) Listen(los ...ListenOption) (Listener, error) {
 	}
 	d.stateChangedNotifee.addListener(sl)
 	return sl, nil
-}
-
-func (d *DB) LocalEventListen() *app.LocalEventListener {
-	return d.localEventsBus.Listen()
 }
 
 func (d *DB) notifyStateChanged(actions []Action) {
@@ -128,7 +124,7 @@ func (scn *stateChangedNotifee) close() {
 	scn.lock.Lock()
 	defer scn.lock.Unlock()
 	for i := range scn.listeners {
-		close(scn.listeners[i].c)
+		scn.listeners[i].Close()
 	}
 }
 

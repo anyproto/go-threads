@@ -49,7 +49,7 @@ func NewService(network app.Net, conf Config) (*Service, error) {
 		}
 	}
 
-	manager, err := db.NewManager(network, db.WithNewDBRepoPath(conf.RepoPath), db.WithNewDBDebug(conf.Debug))
+	manager, err := db.NewManager(network, db.WithNewRepoPath(conf.RepoPath), db.WithNewDebug(conf.Debug))
 	if err != nil {
 		return nil, err
 	}
@@ -63,6 +63,14 @@ func (s *Service) Close() error {
 type remoteIdentity struct {
 	pk     thread.PubKey
 	server pb.API_GetTokenServer
+}
+
+func (i *remoteIdentity) MarshalBinary() ([]byte, error) {
+	return nil, nil
+}
+
+func (i *remoteIdentity) UnmarshalBinary([]byte) error {
+	return nil
 }
 
 func (i *remoteIdentity) Sign(ctx context.Context, msg []byte) ([]byte, error) {
@@ -106,6 +114,14 @@ func (i *remoteIdentity) Sign(ctx context.Context, msg []byte) ([]byte, error) {
 
 func (i *remoteIdentity) GetPublic() thread.PubKey {
 	return i.pk
+}
+
+func (i *remoteIdentity) Decrypt(context.Context, []byte) ([]byte, error) {
+	return nil, nil // no-op
+}
+
+func (i *remoteIdentity) Equals(thread.Identity) bool {
+	return false
 }
 
 func (s *Service) GetToken(server pb.API_GetTokenServer) error {
@@ -160,7 +176,12 @@ func (s *Service) NewDB(ctx context.Context, req *pb.NewDBRequest) (*pb.NewDBRep
 	if err != nil {
 		return nil, err
 	}
-	if _, err = s.manager.NewDB(ctx, id, db.WithNewManagedDBToken(token), db.WithNewManagedDBCollections(collections...)); err != nil {
+	if _, err = s.manager.NewDB(
+		ctx,
+		id,
+		db.WithNewManagedName(req.Name),
+		db.WithNewManagedToken(token),
+		db.WithNewManagedCollections(collections...)); err != nil {
 		return nil, err
 	}
 	return &pb.NewDBReply{}, nil
@@ -189,16 +210,23 @@ func (s *Service) NewDBFromAddr(ctx context.Context, req *pb.NewDBFromAddrReques
 	if err != nil {
 		return nil, err
 	}
-	if _, err = s.manager.NewDBFromAddr(ctx, addr, key, db.WithNewManagedDBToken(token), db.WithNewManagedDBCollections(collections...)); err != nil {
+	if _, err = s.manager.NewDBFromAddr(
+		ctx,
+		addr,
+		key,
+		db.WithNewManagedName(req.Name),
+		db.WithNewManagedToken(token),
+		db.WithNewManagedCollections(collections...),
+		db.WithNewManagedBackfillBlock(req.Block)); err != nil {
 		return nil, err
 	}
 	return &pb.NewDBReply{}, nil
 }
 
 func collectionConfigFromPb(pbc *pb.CollectionConfig) (db.CollectionConfig, error) {
-	indexes := make([]db.IndexConfig, len(pbc.Indexes))
+	indexes := make([]db.Index, len(pbc.Indexes))
 	for i, index := range pbc.Indexes {
-		indexes[i] = db.IndexConfig{
+		indexes[i] = db.Index{
 			Path:   index.Path,
 			Unique: index.Unique,
 		}
@@ -208,10 +236,38 @@ func collectionConfigFromPb(pbc *pb.CollectionConfig) (db.CollectionConfig, erro
 		return db.CollectionConfig{}, err
 	}
 	return db.CollectionConfig{
-		Name:    pbc.Name,
-		Schema:  schema,
-		Indexes: indexes,
+		Name:           pbc.Name,
+		Schema:         schema,
+		Indexes:        indexes,
+		WriteValidator: pbc.WriteValidator,
+		ReadFilter:     pbc.ReadFilter,
 	}, nil
+}
+
+func (s *Service) ListDBs(ctx context.Context, _ *pb.ListDBsRequest) (*pb.ListDBsReply, error) {
+	token, err := thread.NewTokenFromMD(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	dbs, err := s.manager.ListDBs(ctx, db.WithManagedToken(token))
+	if err != nil {
+		return nil, err
+	}
+	pbdbs := make([]*pb.ListDBsReply_DB, len(dbs))
+	var i int
+	for id, d := range dbs {
+		info, err := dBInfoToPb(d, token)
+		if err != nil {
+			return nil, err
+		}
+		pbdbs[i] = &pb.ListDBsReply_DB{
+			DbID: id.Bytes(),
+			Info: info,
+		}
+		i++
+	}
+	return &pb.ListDBsReply{Dbs: pbdbs}, nil
 }
 
 func (s *Service) GetDBInfo(ctx context.Context, req *pb.GetDBInfoRequest) (*pb.GetDBInfoReply, error) {
@@ -228,21 +284,23 @@ func (s *Service) GetDBInfo(ctx context.Context, req *pb.GetDBInfoRequest) (*pb.
 	if err != nil {
 		return nil, err
 	}
+	return dBInfoToPb(d, token)
+}
 
-	addrs, key, err := d.GetDBInfo(db.WithInviteInfoToken(token))
+func dBInfoToPb(d *db.DB, token thread.Token) (*pb.GetDBInfoReply, error) {
+	info, err := d.GetDBInfo(db.WithToken(token))
 	if err != nil {
 		return nil, err
 	}
-
-	res := make([][]byte, len(addrs))
-	for i := range addrs {
-		res[i] = addrs[i].Bytes()
+	res := make([][]byte, len(info.Addrs))
+	for i := range info.Addrs {
+		res[i] = info.Addrs[i].Bytes()
 	}
-	reply := &pb.GetDBInfoReply{
+	return &pb.GetDBInfoReply{
+		Name:  info.Name,
 		Addrs: res,
-		Key:   key.Bytes(),
-	}
-	return reply, nil
+		Key:   info.Key.Bytes(),
+	}, nil
 }
 
 func (s *Service) DeleteDB(ctx context.Context, req *pb.DeleteDBRequest) (*pb.DeleteDBReply, error) {
@@ -255,9 +313,9 @@ func (s *Service) DeleteDB(ctx context.Context, req *pb.DeleteDBRequest) (*pb.De
 		return nil, err
 	}
 
-	if err = s.manager.DeleteDB(ctx, id, db.WithManagedDBToken(token)); err != nil {
-		if errors.Is(err, lstore.ErrThreadNotFound) {
-			return nil, status.Error(codes.NotFound, "db not found")
+	if err = s.manager.DeleteDB(ctx, id, db.WithManagedToken(token)); err != nil {
+		if errors.Is(err, lstore.ErrThreadNotFound) || errors.Is(err, db.ErrDBNotFound) {
+			return nil, status.Error(codes.NotFound, err.Error())
 		} else {
 			return nil, err
 		}
@@ -286,6 +344,122 @@ func (s *Service) NewCollection(ctx context.Context, req *pb.NewCollectionReques
 		return nil, err
 	}
 	return &pb.NewCollectionReply{}, nil
+}
+
+func (s *Service) UpdateCollection(ctx context.Context, req *pb.UpdateCollectionRequest) (*pb.UpdateCollectionReply, error) {
+	id, err := thread.Cast(req.DbID)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	token, err := thread.NewTokenFromMD(ctx)
+	if err != nil {
+		return nil, err
+	}
+	d, err := s.getDB(ctx, id, token)
+	if err != nil {
+		return nil, err
+	}
+	cc, err := collectionConfigFromPb(req.Config)
+	if err != nil {
+		return nil, err
+	}
+	if _, err = d.UpdateCollection(cc); err != nil {
+		return nil, err
+	}
+	return &pb.UpdateCollectionReply{}, nil
+}
+
+func (s *Service) DeleteCollection(ctx context.Context, req *pb.DeleteCollectionRequest) (*pb.DeleteCollectionReply, error) {
+	id, err := thread.Cast(req.DbID)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	token, err := thread.NewTokenFromMD(ctx)
+	if err != nil {
+		return nil, err
+	}
+	d, err := s.getDB(ctx, id, token)
+	if err != nil {
+		return nil, err
+	}
+	if err = d.DeleteCollection(req.Name); err != nil {
+		return nil, err
+	}
+	return &pb.DeleteCollectionReply{}, nil
+}
+
+func (s *Service) GetCollectionInfo(ctx context.Context, req *pb.GetCollectionInfoRequest) (*pb.GetCollectionInfoReply, error) {
+	id, err := thread.Cast(req.DbID)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	token, err := thread.NewTokenFromMD(ctx)
+	if err != nil {
+		return nil, err
+	}
+	collection, err := s.getCollection(ctx, req.Name, id, token)
+	if err != nil {
+		return nil, err
+	}
+	return &pb.GetCollectionInfoReply{
+		Name:    collection.GetName(),
+		Schema:  collection.GetSchema(),
+		Indexes: indexesToPb(collection.GetIndexes()),
+	}, nil
+}
+
+func indexesToPb(indexes []db.Index) []*pb.Index {
+	pbindexes := make([]*pb.Index, len(indexes))
+	for i, index := range indexes {
+		pbindexes[i] = &pb.Index{
+			Path:   index.Path,
+			Unique: index.Unique,
+		}
+	}
+	return pbindexes
+}
+
+func (s *Service) GetCollectionIndexes(ctx context.Context, req *pb.GetCollectionIndexesRequest) (*pb.GetCollectionIndexesReply, error) {
+	id, err := thread.Cast(req.DbID)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	token, err := thread.NewTokenFromMD(ctx)
+	if err != nil {
+		return nil, err
+	}
+	collection, err := s.getCollection(ctx, req.Name, id, token)
+	if err != nil {
+		return nil, err
+	}
+	return &pb.GetCollectionIndexesReply{
+		Indexes: indexesToPb(collection.GetIndexes()),
+	}, nil
+}
+
+func (s *Service) ListCollections(ctx context.Context, req *pb.ListCollectionsRequest) (*pb.ListCollectionsReply, error) {
+	id, err := thread.Cast(req.DbID)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	token, err := thread.NewTokenFromMD(ctx)
+	if err != nil {
+		return nil, err
+	}
+	d, err := s.getDB(ctx, id, token)
+	if err != nil {
+		return nil, err
+	}
+	list := d.ListCollections(db.WithToken(token))
+	pblist := make([]*pb.GetCollectionInfoReply, len(list))
+	for i, c := range list {
+		pblist[i] = &pb.GetCollectionInfoReply{
+			Name:    c.GetName(),
+			Schema:  c.GetSchema(),
+			Indexes: indexesToPb(c.GetIndexes()),
+		}
+	}
+	return &pb.ListCollectionsReply{Collections: pblist}, nil
 }
 
 func (s *Service) Create(ctx context.Context, req *pb.CreateRequest) (*pb.CreateReply, error) {
@@ -551,7 +725,6 @@ func (s *Service) WriteTransaction(stream pb.API_WriteTransactionServer) error {
 					return err
 				}
 			case *pb.WriteTransactionRequest_SaveRequest:
-				// @todo: This needs to be a different auth.
 				innerReply, err := s.processSaveRequest(x.SaveRequest, token, func(ids [][]byte, _ ...db.TxnOption) error {
 					return txn.Save(ids...)
 				})
@@ -638,12 +811,12 @@ func (s *Service) Listen(req *pb.ListenRequest, server pb.API_ListenServer) erro
 			switch action.Type {
 			case db.ActionCreate:
 				replyAction = pb.ListenReply_CREATE
-				instance, err = s.instanceForAction(d, action)
+				instance, err = s.instanceForAction(d, action, token)
 			case db.ActionDelete:
 				replyAction = pb.ListenReply_DELETE
 			case db.ActionSave:
 				replyAction = pb.ListenReply_SAVE
-				instance, err = s.instanceForAction(d, action)
+				instance, err = s.instanceForAction(d, action, token)
 			default:
 				err = status.Errorf(codes.Internal, "unknown action type %v", action.Type)
 			}
@@ -663,12 +836,12 @@ func (s *Service) Listen(req *pb.ListenRequest, server pb.API_ListenServer) erro
 	}
 }
 
-func (s *Service) instanceForAction(db *db.DB, action db.Action) ([]byte, error) {
-	collection := db.GetCollection(action.Collection)
+func (s *Service) instanceForAction(d *db.DB, action db.Action, token thread.Token) ([]byte, error) {
+	collection := d.GetCollection(action.Collection, db.WithToken(token))
 	if collection == nil {
-		return nil, status.Error(codes.NotFound, "collection not found")
+		return nil, status.Error(codes.NotFound, db.ErrCollectionNotFound.Error())
 	}
-	res, err := collection.FindByID(action.ID)
+	res, err := collection.FindByID(action.ID, db.WithTxnToken(token))
 	if err != nil {
 		return nil, err
 	}
@@ -742,10 +915,10 @@ func (s *Service) processFindRequest(req *pb.FindRequest, token thread.Token, fi
 }
 
 func (s *Service) getDB(ctx context.Context, id thread.ID, token thread.Token) (*db.DB, error) {
-	d, err := s.manager.GetDB(ctx, id, db.WithManagedDBToken(token))
+	d, err := s.manager.GetDB(ctx, id, db.WithManagedToken(token))
 	if err != nil {
-		if errors.Is(err, lstore.ErrThreadNotFound) {
-			return nil, status.Error(codes.NotFound, "db not found")
+		if errors.Is(err, lstore.ErrThreadNotFound) || errors.Is(err, db.ErrDBNotFound) {
+			return nil, status.Error(codes.NotFound, err.Error())
 		} else {
 			return nil, err
 		}
@@ -760,7 +933,7 @@ func (s *Service) getCollection(ctx context.Context, collectionName string, id t
 	}
 	collection := d.GetCollection(collectionName)
 	if collection == nil {
-		return nil, status.Error(codes.NotFound, "collection not found")
+		return nil, status.Error(codes.NotFound, db.ErrCollectionNotFound.Error())
 	}
 	return collection, nil
 }

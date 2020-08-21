@@ -2,15 +2,15 @@ package db
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"io"
 	"strings"
 
-	ds "github.com/ipfs/go-datastore"
-	kt "github.com/ipfs/go-datastore/keytransform"
-	"github.com/ipfs/go-datastore/query"
 	logging "github.com/ipfs/go-log"
 	ma "github.com/multiformats/go-multiaddr"
+	ds "github.com/textileio/go-datastore"
+	kt "github.com/textileio/go-datastore/keytransform"
+	"github.com/textileio/go-datastore/query"
 	"github.com/textileio/go-threads/core/app"
 	"github.com/textileio/go-threads/core/net"
 	"github.com/textileio/go-threads/core/thread"
@@ -18,25 +18,28 @@ import (
 )
 
 var (
-	dsDBManagerBaseKey = ds.NewKey("/manager")
+	// ErrDBNotFound indicates that the specified db doesn't exist in the manager.
+	ErrDBNotFound = errors.New("db not found")
+	// ErrDBExists indicates that the specified db alrady exists in the manager.
+	ErrDBExists = errors.New("db already exists")
+
+	dsManagerBaseKey = ds.NewKey("/manager")
 )
 
 type Manager struct {
 	io.Closer
 
-	newDBOptions *NewDBOptions
+	opts *NewOptions
 
 	network app.Net
 	dbs     map[thread.ID]*DB
 }
 
 // NewManager hydrates and starts dbs from prefixes.
-func NewManager(network app.Net, opts ...NewDBOption) (*Manager, error) {
-	options := &NewDBOptions{}
+func NewManager(network app.Net, opts ...NewOption) (*Manager, error) {
+	options := &NewOptions{}
 	for _, opt := range opts {
-		if err := opt(options); err != nil {
-			return nil, err
-		}
+		opt(options)
 	}
 
 	if options.Datastore == nil {
@@ -55,19 +58,20 @@ func NewManager(network app.Net, opts ...NewDBOption) (*Manager, error) {
 	}
 
 	m := &Manager{
-		newDBOptions: options,
-		network:      network,
-		dbs:          make(map[thread.ID]*DB),
+		opts:    options,
+		network: network,
+		dbs:     make(map[thread.ID]*DB),
 	}
 
-	results, err := m.newDBOptions.Datastore.Query(query.Query{
-		Prefix:   dsDBManagerBaseKey.String(),
+	results, err := m.opts.Datastore.Query(query.Query{
+		Prefix:   dsManagerBaseKey.String(),
 		KeysOnly: true,
 	})
 	if err != nil {
 		return nil, err
 	}
 	defer results.Close()
+	invalids := make(map[thread.ID]struct{})
 	for res := range results.Next() {
 		parts := strings.Split(ds.RawKey(res.Key).String(), "/")
 		if len(parts) < 3 {
@@ -80,11 +84,27 @@ func NewManager(network app.Net, opts ...NewDBOption) (*Manager, error) {
 		if _, ok := m.dbs[id]; ok {
 			continue
 		}
-		s, err := newDB(m.network, id, getDBOptions(id, m.newDBOptions))
+		if _, ok := invalids[id]; ok {
+			continue
+		}
+		opts, err := getDBOptions(id, m.opts, "")
 		if err != nil {
 			return nil, err
 		}
+		s, err := newDB(m.network, id, opts)
+		if err != nil {
+			log.Errorf("unable to reload db %s: %s (marked for deletion)", id, err)
+			invalids[id] = struct{}{}
+			continue
+		}
 		m.dbs[id] = s
+	}
+
+	// Cleanup invalids
+	for id := range invalids {
+		if err := m.deleteThreadNamespace(id); err != nil {
+			return nil, err
+		}
 	}
 	return m, nil
 }
@@ -95,19 +115,27 @@ func (m *Manager) GetToken(ctx context.Context, identity thread.Identity) (threa
 }
 
 // NewDB creates a new db and prefixes its datastore with base key.
-func (m *Manager) NewDB(ctx context.Context, id thread.ID, opts ...NewManagedDBOption) (*DB, error) {
+func (m *Manager) NewDB(ctx context.Context, id thread.ID, opts ...NewManagedOption) (*DB, error) {
 	if _, ok := m.dbs[id]; ok {
-		return nil, fmt.Errorf("db %s already exists", id)
+		return nil, ErrDBExists
 	}
-	args := &NewManagedDBOptions{}
+	args := &NewManagedOptions{}
 	for _, opt := range opts {
 		opt(args)
 	}
-	if _, err := m.network.CreateThread(ctx, id, net.WithNewThreadToken(args.Token)); err != nil {
+	if args.Name != "" && !nameRx.MatchString(args.Name) { // Pre-check name
+		return nil, ErrInvalidName
+	}
+
+	if _, err := m.network.CreateThread(ctx, id, net.WithThreadKey(args.ThreadKey), net.WithLogKey(args.LogKey), net.WithNewThreadToken(args.Token)); err != nil {
 		return nil, err
 	}
 
-	db, err := newDB(m.network, id, getDBOptions(id, m.newDBOptions, args.Collections...))
+	dbOpts, err := getDBOptions(id, m.opts, args.Name, args.Collections...)
+	if err != nil {
+		return nil, err
+	}
+	db, err := newDB(m.network, id, dbOpts)
 	if err != nil {
 		return nil, err
 	}
@@ -118,85 +146,131 @@ func (m *Manager) NewDB(ctx context.Context, id thread.ID, opts ...NewManagedDBO
 // NewDBFromAddr creates a new db from address and prefixes its datastore with base key.
 // Unlike NewDB, this method takes a list of collections added to the original db that
 // should also be added to this host.
-func (m *Manager) NewDBFromAddr(ctx context.Context, addr ma.Multiaddr, key thread.Key, opts ...NewManagedDBOption) (*DB, error) {
+func (m *Manager) NewDBFromAddr(ctx context.Context, addr ma.Multiaddr, key thread.Key, opts ...NewManagedOption) (*DB, error) {
 	id, err := thread.FromAddr(addr)
 	if err != nil {
 		return nil, err
 	}
 	if _, ok := m.dbs[id]; ok {
-		return nil, fmt.Errorf("db %s already exists", id)
+		return nil, ErrDBExists
 	}
-	args := &NewManagedDBOptions{}
+	args := &NewManagedOptions{}
 	for _, opt := range opts {
 		opt(args)
 	}
-	if _, err := m.network.AddThread(ctx, addr, net.WithThreadKey(key), net.WithNewThreadToken(args.Token)); err != nil {
+	if args.Name != "" && !nameRx.MatchString(args.Name) { // Pre-check name
+		return nil, ErrInvalidName
+	}
+
+	if _, err := m.network.AddThread(ctx, addr, net.WithThreadKey(key), net.WithLogKey(args.LogKey), net.WithNewThreadToken(args.Token)); err != nil {
 		return nil, err
 	}
 
-	db, err := newDB(m.network, id, getDBOptions(id, m.newDBOptions, args.Collections...))
+	dbOpts, err := getDBOptions(id, m.opts, args.Name, args.Collections...)
+	if err != nil {
+		return nil, err
+	}
+	db, err := newDB(m.network, id, dbOpts)
 	if err != nil {
 		return nil, err
 	}
 	m.dbs[id] = db
 
-	go func() {
-		if err := m.network.PullThread(ctx, id, net.WithThreadToken(args.Token)); err != nil {
-			log.Errorf("error pulling thread %s", id)
+	if args.Block {
+		if err = m.network.PullThread(ctx, id, net.WithThreadToken(args.Token)); err != nil {
+			return nil, err
 		}
-	}()
-
+	} else {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), pullThreadBackgroundTimeout)
+			defer cancel()
+			if err := m.network.PullThread(ctx, id, net.WithThreadToken(args.Token)); err != nil {
+				log.Errorf("error pulling thread %s", id)
+			}
+		}()
+	}
 	return db, nil
 }
 
+// ListDBs returns a list of all dbs.
+func (m *Manager) ListDBs(ctx context.Context, opts ...ManagedOption) (map[thread.ID]*DB, error) {
+	args := &ManagedOptions{}
+	for _, opt := range opts {
+		opt(args)
+	}
+
+	dbs := make(map[thread.ID]*DB)
+	for id, db := range m.dbs {
+		if _, err := m.network.GetThread(ctx, id, net.WithThreadToken(args.Token)); err != nil {
+			return nil, err
+		}
+		dbs[id] = db
+	}
+	return dbs, nil
+}
+
 // GetDB returns a db by id.
-func (m *Manager) GetDB(ctx context.Context, id thread.ID, opts ...ManagedDBOption) (*DB, error) {
-	args := &ManagedDBOptions{}
+func (m *Manager) GetDB(ctx context.Context, id thread.ID, opts ...ManagedOption) (*DB, error) {
+	args := &ManagedOptions{}
 	for _, opt := range opts {
 		opt(args)
 	}
 	if _, err := m.network.GetThread(ctx, id, net.WithThreadToken(args.Token)); err != nil {
 		return nil, err
 	}
-	return m.dbs[id], nil
+	db, ok := m.dbs[id]
+	if !ok {
+		return nil, ErrDBNotFound
+	}
+	return db, nil
 }
 
 // DeleteDB deletes a db by id.
-func (m *Manager) DeleteDB(ctx context.Context, id thread.ID, opts ...ManagedDBOption) error {
-	args := &ManagedDBOptions{}
+func (m *Manager) DeleteDB(ctx context.Context, id thread.ID, opts ...ManagedOption) error {
+	args := &ManagedOptions{}
 	for _, opt := range opts {
 		opt(args)
 	}
 	if _, err := m.network.GetThread(ctx, id, net.WithThreadToken(args.Token)); err != nil {
 		return err
 	}
-	db := m.dbs[id]
-	if db == nil {
-		return nil
+	db, ok := m.dbs[id]
+	if !ok {
+		return ErrDBNotFound
 	}
 
 	if err := db.Close(); err != nil {
 		return err
 	}
-	if err := m.network.DeleteThread(ctx, id, net.WithThreadToken(args.Token)); err != nil {
+	if err := m.network.DeleteThread(ctx, id, net.WithThreadToken(args.Token), net.WithAPIToken(db.connector.Token())); err != nil {
 		return err
 	}
 
 	// Cleanup keys used by the db
-	pre := dsDBManagerBaseKey.ChildString(id.String())
+	if err := id.Validate(); err != nil {
+		return err
+	}
+	if err := m.deleteThreadNamespace(id); err != nil {
+		return err
+	}
+
+	delete(m.dbs, id)
+	return nil
+}
+
+func (m *Manager) deleteThreadNamespace(id thread.ID) error {
+	pre := dsManagerBaseKey.ChildString(id.String())
 	q := query.Query{Prefix: pre.String(), KeysOnly: true}
-	results, err := m.newDBOptions.Datastore.Query(q)
+	results, err := m.opts.Datastore.Query(q)
 	if err != nil {
 		return err
 	}
 	defer results.Close()
 	for result := range results.Next() {
-		if err := m.newDBOptions.Datastore.Delete(ds.NewKey(result.Key)); err != nil {
+		if err := m.opts.Datastore.Delete(ds.NewKey(result.Key)); err != nil {
 			return err
 		}
 	}
-
-	delete(m.dbs, id)
 	return nil
 }
 
@@ -212,20 +286,25 @@ func (m *Manager) Close() error {
 			log.Error("error when closing manager datastore: %v", err)
 		}
 	}
-	return m.newDBOptions.Datastore.Close()
+	return m.opts.Datastore.Close()
 }
 
 // getDBOptions copies the manager's base config,
 // wraps the datastore with an id prefix,
 // and merges specified collection configs with those from base
-func getDBOptions(id thread.ID, base *NewDBOptions, collections ...CollectionConfig) *NewDBOptions {
-	return &NewDBOptions{
+func getDBOptions(id thread.ID, base *NewOptions, name string, collections ...CollectionConfig) (*NewOptions, error) {
+	if err := id.Validate(); err != nil {
+		return nil, err
+	}
+	return &NewOptions{
+		Name:     name,
 		RepoPath: base.RepoPath,
 		Datastore: wrapTxnDatastore(base.Datastore, kt.PrefixTransform{
-			Prefix: dsDBManagerBaseKey.ChildString(id.String()),
+			Prefix: dsManagerBaseKey.ChildString(id.String()),
 		}),
-		EventCodec:  base.EventCodec,
-		Debug:       base.Debug,
 		Collections: append(base.Collections, collections...),
-	}
+		EventCodec:  base.EventCodec,
+		LowMem:      base.LowMem,
+		Debug:       base.Debug,
+	}, nil
 }

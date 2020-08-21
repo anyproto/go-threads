@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	ds "github.com/ipfs/go-datastore"
+	"github.com/ipfs/go-datastore/query"
 	core "github.com/textileio/go-threads/core/logstore"
 	"github.com/textileio/go-threads/core/thread"
 	"github.com/whyrusleeping/base32"
@@ -60,6 +61,22 @@ func (m *dsThreadMetadata) PutString(t thread.ID, key string, val string) error 
 	return m.setValue(t, key, val)
 }
 
+func (m *dsThreadMetadata) GetBool(t thread.ID, key string) (*bool, error) {
+	var val bool
+	err := m.getValue(t, key, &val)
+	if err == ds.ErrNotFound {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &val, nil
+}
+
+func (m *dsThreadMetadata) PutBool(t thread.ID, key string, val bool) error {
+	return m.setValue(t, key, val)
+}
+
 func (m *dsThreadMetadata) GetBytes(t thread.ID, key string) (*[]byte, error) {
 	var val []byte
 	err := m.getValue(t, key, &val)
@@ -107,6 +124,25 @@ func (m *dsThreadMetadata) setValue(t thread.ID, key string, val interface{}) er
 	}
 	if err := m.ds.Put(k, buf.Bytes()); err != nil {
 		return fmt.Errorf("error when saving marshaled value in datastore: %w", err)
+	}
+	return nil
+}
+
+func (m *dsThreadMetadata) ClearMetadata(t thread.ID) error {
+	q := query.Query{
+		Prefix:   tmetaBase.ChildString(base32.RawStdEncoding.EncodeToString(t.Bytes())).String(),
+		KeysOnly: true,
+	}
+	results, err := m.ds.Query(q)
+	if err != nil {
+		return err
+	}
+	defer results.Close()
+
+	for result := range results.Next() {
+		if err := m.ds.Delete(ds.NewKey(result.Key)); err != nil {
+			return fmt.Errorf("error when clearing key: %w", err)
+		}
 	}
 	return nil
 }

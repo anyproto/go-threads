@@ -11,6 +11,7 @@ import (
 
 	"github.com/improbable-eng/grpc-web/go/grpcweb"
 	logging "github.com/ipfs/go-log"
+	connmgr "github.com/libp2p/go-libp2p-connmgr"
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/namsral/flag"
 	"github.com/textileio/go-threads/api"
@@ -31,6 +32,11 @@ func main() {
 	hostAddrStr := fs.String("hostAddr", "/ip4/0.0.0.0/tcp/4006", "Threads host bind address")
 	apiAddrStr := fs.String("apiAddr", "/ip4/127.0.0.1/tcp/6006", "API bind address")
 	apiProxyAddrStr := fs.String("apiProxyAddr", "/ip4/127.0.0.1/tcp/6007", "API gRPC proxy bind address")
+	connLowWater := fs.Int("connLowWater", 100, "Low watermark of libp2p connections that'll be maintained")
+	connHighWater := fs.Int("connHighWater", 400, "High watermark of libp2p connections that'll be maintained")
+	connGracePeriod := fs.Duration("connGracePeriod", time.Second*20, "Duration a newly opened connection is given before it becomes subject to pruning")
+	keepAliveInterval := fs.Duration("keepAliveInterval", time.Second*5, "Enables websocket keepalive pinging with the specified timeout interval. Configured interval must be >= 1s.")
+	enableNetPubsub := fs.Bool("enableNetPubsub", false, "Enable thread networking over libp2p pubsub")
 	debug := fs.Bool("debug", false, "Enable debug logging")
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		log.Fatal(err)
@@ -49,7 +55,9 @@ func main() {
 		log.Fatal(err)
 	}
 
-	util.SetupDefaultLoggingConfig(*repo)
+	if err := util.SetupDefaultLoggingConfig(*repo); err != nil {
+		log.Fatal(err)
+	}
 	if *debug {
 		if err := logging.SetLogLevel("threadsd", "debug"); err != nil {
 			log.Fatal(err)
@@ -60,9 +68,19 @@ func main() {
 	log.Debugf("hostAddr: %v", *hostAddrStr)
 	log.Debugf("apiAddr: %v", *apiAddrStr)
 	log.Debugf("apiProxyAddr: %v", *apiProxyAddrStr)
+	log.Debugf("connLowWater: %v", *connLowWater)
+	log.Debugf("connHighWater: %v", *connHighWater)
+	log.Debugf("connGracePeriod: %v", *connGracePeriod)
+	log.Debugf("keepAliveInterval: %v", *keepAliveInterval)
+	log.Debugf("enableNetPubsub: %v", *enableNetPubsub)
 	log.Debugf("debug: %v", *debug)
 
-	n, err := common.DefaultNetwork(*repo, common.WithNetHostAddr(hostAddr), common.WithNetDebug(*debug))
+	n, err := common.DefaultNetwork(
+		*repo,
+		common.WithNetHostAddr(hostAddr),
+		common.WithConnectionManager(connmgr.NewConnManager(*connLowWater, *connHighWater, *connGracePeriod)),
+		common.WithNetPubSub(*enableNetPubsub),
+		common.WithNetDebug(*debug))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -110,6 +128,7 @@ func main() {
 			return true
 		}),
 		grpcweb.WithWebsockets(true),
+		grpcweb.WithWebsocketPingInterval(*keepAliveInterval),
 		grpcweb.WithWebsocketOriginFunc(func(req *http.Request) bool {
 			return true
 		}))

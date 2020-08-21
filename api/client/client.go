@@ -152,8 +152,8 @@ func (c *Client) GetToken(ctx context.Context, identity thread.Identity) (tok th
 }
 
 // NewDB creates a new DB with ID.
-func (c *Client) NewDB(ctx context.Context, dbID thread.ID, opts ...db.NewManagedDBOption) error {
-	args := &db.NewManagedDBOptions{}
+func (c *Client) NewDB(ctx context.Context, dbID thread.ID, opts ...db.NewManagedOption) error {
+	args := &db.NewManagedOptions{}
 	for _, opt := range opts {
 		opt(args)
 	}
@@ -169,13 +169,14 @@ func (c *Client) NewDB(ctx context.Context, dbID thread.ID, opts ...db.NewManage
 	_, err := c.c.NewDB(ctx, &pb.NewDBRequest{
 		DbID:        dbID.Bytes(),
 		Collections: pbcollections,
+		Name:        args.Name,
 	})
 	return err
 }
 
 // NewDBFromAddr creates a new DB with address and keys.
-func (c *Client) NewDBFromAddr(ctx context.Context, dbAddr ma.Multiaddr, dbKey thread.Key, opts ...db.NewManagedDBOption) error {
-	args := &db.NewManagedDBOptions{}
+func (c *Client) NewDBFromAddr(ctx context.Context, dbAddr ma.Multiaddr, dbKey thread.Key, opts ...db.NewManagedOption) error {
+	args := &db.NewManagedOptions{}
 	for _, opt := range opts {
 		opt(args)
 	}
@@ -192,14 +193,16 @@ func (c *Client) NewDBFromAddr(ctx context.Context, dbAddr ma.Multiaddr, dbKey t
 		Addr:        dbAddr.Bytes(),
 		Key:         dbKey.Bytes(),
 		Collections: pbcollections,
+		Name:        args.Name,
+		Block:       args.Block,
 	})
 	return err
 }
 
 func collectionConfigToPb(c db.CollectionConfig) (*pb.CollectionConfig, error) {
-	idx := make([]*pb.CollectionConfig_IndexConfig, len(c.Indexes))
+	idx := make([]*pb.Index, len(c.Indexes))
 	for i, index := range c.Indexes {
-		idx[i] = &pb.CollectionConfig_IndexConfig{
+		idx[i] = &pb.Index{
 			Path:   index.Path,
 			Unique: index.Unique,
 		}
@@ -209,15 +212,51 @@ func collectionConfigToPb(c db.CollectionConfig) (*pb.CollectionConfig, error) {
 		return nil, err
 	}
 	return &pb.CollectionConfig{
-		Name:    c.Name,
-		Schema:  schemaBytes,
-		Indexes: idx,
+		Name:           c.Name,
+		Schema:         schemaBytes,
+		Indexes:        idx,
+		WriteValidator: c.WriteValidator,
+		ReadFilter:     c.ReadFilter,
 	}, nil
 }
 
+// DBInfo wraps info about a db.
+type DBInfo struct {
+	Name  string
+	Addrs []ma.Multiaddr
+	Key   thread.Key
+}
+
+// ListDBs lists all dbs.
+func (c *Client) ListDBs(ctx context.Context, opts ...db.ManagedOption) (map[thread.ID]*DBInfo, error) {
+	args := &db.ManagedOptions{}
+	for _, opt := range opts {
+		opt(args)
+	}
+	ctx = thread.NewTokenContext(ctx, args.Token)
+	res, err := c.c.ListDBs(ctx, &pb.ListDBsRequest{})
+	if err != nil {
+		return nil, err
+	}
+
+	dbs := make(map[thread.ID]*DBInfo)
+	for _, d := range res.Dbs {
+		id, err := thread.Cast(d.DbID)
+		if err != nil {
+			return nil, err
+		}
+		info, err := dbInfoFromPb(d.Info)
+		if err != nil {
+			return nil, err
+		}
+		dbs[id] = info
+	}
+	return dbs, nil
+}
+
 // GetDBInfo retrives db addresses and keys.
-func (c *Client) GetDBInfo(ctx context.Context, dbID thread.ID, opts ...db.ManagedDBOption) ([]ma.Multiaddr, thread.Key, error) {
-	args := &db.ManagedDBOptions{}
+func (c *Client) GetDBInfo(ctx context.Context, dbID thread.ID, opts ...db.ManagedOption) (*DBInfo, error) {
+	args := &db.ManagedOptions{}
 	for _, opt := range opts {
 		opt(args)
 	}
@@ -226,26 +265,30 @@ func (c *Client) GetDBInfo(ctx context.Context, dbID thread.ID, opts ...db.Manag
 		DbID: dbID.Bytes(),
 	})
 	if err != nil {
-		return nil, thread.Key{}, err
+		return nil, err
 	}
-	addrs := make([]ma.Multiaddr, len(res.Addrs))
-	for i, bytes := range res.Addrs {
+	return dbInfoFromPb(res)
+}
+
+func dbInfoFromPb(pi *pb.GetDBInfoReply) (*DBInfo, error) {
+	addrs := make([]ma.Multiaddr, len(pi.Addrs))
+	for i, bytes := range pi.Addrs {
 		addr, err := ma.NewMultiaddrBytes(bytes)
 		if err != nil {
-			return nil, thread.Key{}, err
+			return nil, err
 		}
 		addrs[i] = addr
 	}
-	key, err := thread.KeyFromBytes(res.Key)
+	key, err := thread.KeyFromBytes(pi.Key)
 	if err != nil {
-		return nil, thread.Key{}, err
+		return nil, err
 	}
-	return addrs, key, nil
+	return &DBInfo{Name: pi.Name, Addrs: addrs, Key: key}, nil
 }
 
 // DeleteDB deletes a db.
-func (c *Client) DeleteDB(ctx context.Context, dbID thread.ID, opts ...db.ManagedDBOption) error {
-	args := &db.ManagedDBOptions{}
+func (c *Client) DeleteDB(ctx context.Context, dbID thread.ID, opts ...db.ManagedOption) error {
+	args := &db.ManagedOptions{}
 	for _, opt := range opts {
 		opt(args)
 	}
@@ -257,9 +300,8 @@ func (c *Client) DeleteDB(ctx context.Context, dbID thread.ID, opts ...db.Manage
 }
 
 // NewCollection creates a new collection.
-// @todo: This should take some thread auth, but collections currently do not involve a thread.
-func (c *Client) NewCollection(ctx context.Context, dbID thread.ID, config db.CollectionConfig, opts ...db.ManagedDBOption) error {
-	args := &db.ManagedDBOptions{}
+func (c *Client) NewCollection(ctx context.Context, dbID thread.ID, config db.CollectionConfig, opts ...db.ManagedOption) error {
+	args := &db.ManagedOptions{}
 	for _, opt := range opts {
 		opt(args)
 	}
@@ -272,6 +314,120 @@ func (c *Client) NewCollection(ctx context.Context, dbID thread.ID, config db.Co
 		Config: cc,
 	})
 	return err
+}
+
+// UpdateCollection updates an existing collection.
+func (c *Client) UpdateCollection(ctx context.Context, dbID thread.ID, config db.CollectionConfig, opts ...db.ManagedOption) error {
+	args := &db.ManagedOptions{}
+	for _, opt := range opts {
+		opt(args)
+	}
+	cc, err := collectionConfigToPb(config)
+	if err != nil {
+		return err
+	}
+	_, err = c.c.UpdateCollection(ctx, &pb.UpdateCollectionRequest{
+		DbID:   dbID.Bytes(),
+		Config: cc,
+	})
+	return err
+}
+
+// DeleteCollection deletes a collection.
+func (c *Client) DeleteCollection(ctx context.Context, dbID thread.ID, name string, opts ...db.ManagedOption) error {
+	args := &db.ManagedOptions{}
+	for _, opt := range opts {
+		opt(args)
+	}
+	_, err := c.c.DeleteCollection(ctx, &pb.DeleteCollectionRequest{
+		DbID: dbID.Bytes(),
+		Name: name,
+	})
+	return err
+}
+
+// CollectionInfo wraps info about a collection.
+type CollectionInfo struct {
+	Name           string
+	Schema         []byte
+	Indexes        []db.Index
+	WriteValidator string
+	ReadFilter     string
+}
+
+// GetCollectionInfo returns information about an existing collection.
+func (c *Client) GetCollectionInfo(ctx context.Context, dbID thread.ID, name string, opts ...db.ManagedOption) (*CollectionInfo, error) {
+	args := &db.ManagedOptions{}
+	for _, opt := range opts {
+		opt(args)
+	}
+	resp, err := c.c.GetCollectionInfo(ctx, &pb.GetCollectionInfoRequest{
+		DbID: dbID.Bytes(),
+		Name: name,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &CollectionInfo{
+		Name:           resp.Name,
+		Schema:         resp.Schema,
+		Indexes:        indexesFromPb(resp.Indexes),
+		WriteValidator: resp.WriteValidator,
+		ReadFilter:     resp.ReadFilter,
+	}, nil
+}
+
+func indexesFromPb(pbindexes []*pb.Index) []db.Index {
+	indexes := make([]db.Index, len(pbindexes))
+	for i, index := range pbindexes {
+		indexes[i] = db.Index{
+			Path:   index.Path,
+			Unique: index.Unique,
+		}
+	}
+	return indexes
+}
+
+// GetCollectionIndexes returns an existing collection's indexes.
+// Deprecated: Use GetCollectionInfo instead.
+func (c *Client) GetCollectionIndexes(ctx context.Context, dbID thread.ID, name string, opts ...db.ManagedOption) ([]db.Index, error) {
+	args := &db.ManagedOptions{}
+	for _, opt := range opts {
+		opt(args)
+	}
+	resp, err := c.c.GetCollectionIndexes(ctx, &pb.GetCollectionIndexesRequest{
+		DbID: dbID.Bytes(),
+		Name: name,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return indexesFromPb(resp.Indexes), nil
+}
+
+// ListCollections returns information about all existing collections.
+func (c *Client) ListCollections(ctx context.Context, dbID thread.ID, opts ...db.ManagedOption) ([]CollectionInfo, error) {
+	args := &db.ManagedOptions{}
+	for _, opt := range opts {
+		opt(args)
+	}
+	resp, err := c.c.ListCollections(ctx, &pb.ListCollectionsRequest{
+		DbID: dbID.Bytes(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	list := make([]CollectionInfo, len(resp.Collections))
+	for i, c := range resp.Collections {
+		list[i] = CollectionInfo{
+			Name:           c.Name,
+			Schema:         c.Schema,
+			Indexes:        indexesFromPb(c.Indexes),
+			WriteValidator: c.WriteValidator,
+			ReadFilter:     c.ReadFilter,
+		}
+	}
+	return list, nil
 }
 
 // Create creates new instances of objects.

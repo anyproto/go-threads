@@ -1,6 +1,7 @@
 package net
 
 import (
+	"bytes"
 	"context"
 	"io"
 
@@ -68,4 +69,14 @@ type API interface {
 
 	// Subscribe returns a read-only channel of records.
 	Subscribe(ctx context.Context, opts ...SubOption) (<-chan ThreadRecord, error)
+}
+
+// Token is used to restrict network APIs to a single app.App.
+// In other words, a net token protects against writes and deletes
+// which are external to an app.
+type Token []byte
+
+// Equal returns whether or not the token is equal to the given value.
+func (t Token) Equal(b Token) bool {
+	return bytes.Equal(t, b)
 }

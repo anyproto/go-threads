@@ -57,6 +57,19 @@ func (m *memoryThreadMetadata) GetString(t thread.ID, key string) (*string, erro
 	return &val, nil
 }
 
+func (m *memoryThreadMetadata) PutBool(t thread.ID, key string, val bool) error {
+	m.putValue(t, key, val)
+	return nil
+}
+
+func (m *memoryThreadMetadata) GetBool(t thread.ID, key string) (*bool, error) {
+	val, ok := m.getValue(t, key).(bool)
+	if !ok {
+		return nil, nil
+	}
+	return &val, nil
+}
+
 func (m *memoryThreadMetadata) PutBytes(t thread.ID, key string, val []byte) error {
 	b := make([]byte, len(val))
 	copy(b, val)
@@ -90,6 +103,17 @@ func (m *memoryThreadMetadata) getValue(t thread.ID, key string) interface{} {
 	defer m.dslock.RUnlock()
 	if v, ok := m.ds[metakey{t, key}]; ok {
 		return v
+	}
+	return nil
+}
+
+func (m *memoryThreadMetadata) ClearMetadata(t thread.ID) error {
+	m.dslock.Lock()
+	defer m.dslock.Unlock()
+	for k := range m.ds {
+		if k.id.Equals(t) {
+			delete(m.ds, k)
+		}
 	}
 	return nil
 }
