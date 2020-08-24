@@ -236,8 +236,10 @@ func (d *DB) reCreateCollections() error {
 		return err
 	}
 	defer results.Close()
+
 	for res := range results.Next() {
 		name := ds.RawKey(res.Key).Name()
+
 		schema := &jsonschema.Schema{}
 		if err := json.Unmarshal(res.Value, schema); err != nil {
 			return err
@@ -520,6 +522,7 @@ func (d *DB) Reduce(events []core.Event) error {
 		actions[i] = Action{Collection: ca.Collection, Type: actionType, ID: ca.InstanceID}
 	}
 	d.notifyStateChanged(actions)
+
 	return nil
 }
 
@@ -554,6 +557,13 @@ func (d *DB) ValidateNetRecordBody(_ context.Context, body format.Node, identity
 		}
 		return c.validWrite(identity, e)
 	}
+	d.localEventsBus.Discard()
+	if !managedDatastore(d.datastore) {
+		if err := d.datastore.Close(); err != nil {
+			return err
+		}
+	}
+	d.stateChangedNotifee.close()
 	return nil
 }
 
