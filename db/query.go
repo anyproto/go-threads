@@ -6,17 +6,22 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+
+	core "github.com/textileio/go-threads/core/db"
 )
 
-// Query is a json-seriable query representation
+// Query is a json-seriable query representation.
 type Query struct {
 	Ands  []*Criterion
 	Ors   []*Query
 	Sort  Sort
+	Seek  core.InstanceID
+	Limit int
+	Skip  int
 	Index string
 }
 
-// Criterion represents a restriction on a field
+// Criterion represents a restriction on a field.
 type Criterion struct {
 	FieldPath string
 	Operation Operation
@@ -24,13 +29,14 @@ type Criterion struct {
 	query     *Query
 }
 
-// Value models a single value in JSON
+// Value models a single value in JSON.
 type Value struct {
 	String *string
 	Bool   *bool
 	Float  *float64
 }
 
+// Validate validates en entire query.
 func (q *Query) Validate() error {
 	if q == nil {
 		return nil
@@ -48,6 +54,7 @@ func (q *Query) Validate() error {
 	return nil
 }
 
+// Validate validates a single query criterion.
 func (c *Criterion) Validate() error {
 	if c == nil {
 		return nil
@@ -68,13 +75,13 @@ func (c *Criterion) Validate() error {
 	return nil
 }
 
-// Sort represents a sort order on a field
+// Sort represents a sort order on a field.
 type Sort struct {
 	FieldPath string
 	Desc      bool
 }
 
-// Operation models comparison operators
+// Operation models comparison operators.
 type Operation int
 
 const (
@@ -98,14 +105,14 @@ var (
 	ErrInvalidSortingField = errors.New("sorting field doesn't correspond to instance type")
 )
 
-// Where starts to create a query condition for a field
+// Where starts to create a query condition for a field.
 func Where(field string) *Criterion {
 	return &Criterion{
 		FieldPath: field,
 	}
 }
 
-// OrderBy specify ascending order for the query results.
+// OrderBy specifies ascending order for the query results.
 func OrderBy(field string) *Query {
 	q := &Query{}
 	q.Sort.FieldPath = field
@@ -113,10 +120,26 @@ func OrderBy(field string) *Query {
 	return q
 }
 
-// OrderByDesc specify descending order for the query results.
+// OrderByDesc specifies descending order for the query results.
 func OrderByDesc(field string) *Query {
 	q := &Query{}
 	q.Sort.FieldPath = field
+	q.Sort.Desc = true
+	return q
+}
+
+// OrderByID specifies ascending ID order for the query results.
+func OrderByID() *Query {
+	q := &Query{}
+	q.Sort.FieldPath = idFieldName
+	q.Sort.Desc = false
+	return q
+}
+
+// OrderByIDDesc specifies descending ID order for the query results.
+func OrderByIDDesc() *Query {
+	q := &Query{}
+	q.Sort.FieldPath = idFieldName
 	q.Sort.Desc = true
 	return q
 }
@@ -129,7 +152,7 @@ func (q *Query) And(field string) *Criterion {
 	}
 }
 
-// UseIndex specifies the index to use when running this query
+// UseIndex specifies the index to use when running this query.
 func (q *Query) UseIndex(path string) *Query {
 	q.Index = path
 	return q
@@ -143,7 +166,7 @@ func (q *Query) Or(orQuery *Query) *Query {
 	return q
 }
 
-// OrderBy specify ascending order for the query results.
+// OrderBy specifies ascending order for the query results.
 // On multiple calls, only the last one is considered.
 func (q *Query) OrderBy(field string) *Query {
 	q.Sort.FieldPath = field
@@ -151,11 +174,45 @@ func (q *Query) OrderBy(field string) *Query {
 	return q
 }
 
-// OrderByDesc specify descending order for the query results.
+// OrderByDesc specifies descending order for the query results.
 // On multiple calls, only the last one is considered.
 func (q *Query) OrderByDesc(field string) *Query {
 	q.Sort.FieldPath = field
 	q.Sort.Desc = true
+	return q
+}
+
+// OrderByID specifies ascending ID order for the query results.
+// On multiple calls, only the last one is considered.
+func (q *Query) OrderByID() *Query {
+	q.Sort.FieldPath = idFieldName
+	q.Sort.Desc = false
+	return q
+}
+
+// OrderByIDDesc specifies descending ID order for the query results.
+// On multiple calls, only the last one is considered.
+func (q *Query) OrderByIDDesc() *Query {
+	q.Sort.FieldPath = idFieldName
+	q.Sort.Desc = true
+	return q
+}
+
+// SeekID seeks to the given ID before returning query results.
+func (q *Query) SeekID(id core.InstanceID) *Query {
+	q.Seek = id
+	return q
+}
+
+// LimitTo sets the maximum number of results.
+func (q *Query) LimitTo(limit int) *Query {
+	q.Limit = limit
+	return q
+}
+
+// SkipNum skips the given number of results.
+func (q *Query) SkipNum(num int) *Query {
+	q.Skip = num
 	return q
 }
 
@@ -231,6 +288,9 @@ func (c *Criterion) createcriterion(op Operation, value interface{}) *Query {
 
 // Find queries for instances by Query
 func (t *Txn) Find(q *Query) ([][]byte, error) {
+	if err := t.collection.db.connector.Validate(t.token, true); err != nil {
+		return nil, err
+	}
 	if q == nil {
 		q = &Query{}
 	}
@@ -242,19 +302,29 @@ func (t *Txn) Find(q *Query) ([][]byte, error) {
 		return nil, fmt.Errorf("error building internal query: %v", err)
 	}
 	defer txn.Discard()
-	iter := newIterator(txn, t.collection.BaseKey(), q)
+	iter := newIterator(txn, t.collection.baseKey(), q)
 	defer iter.Close()
 
+	pk, err := t.token.PubKey()
+	if err != nil {
+		return nil, err
+	}
 	var values []MarshaledResult
 	for {
 		res, ok := iter.NextSync()
 		if !ok {
 			break
 		}
-		values = append(values, res)
+		res.Value, err = t.collection.filterRead(pk, res.Value)
+		if err != nil {
+			return nil, err
+		}
+		if res.Value != nil {
+			values = append(values, res)
+		}
 	}
 
-	if q.Sort.FieldPath != "" {
+	if q.Sort.FieldPath != "" && q.Sort.FieldPath != idFieldName {
 		var wrongField, cantCompare bool
 		sort.Slice(values, func(i, j int) bool {
 			fieldI, err := traverseFieldPathMap(values[i].MarshaledValue, q.Sort.FieldPath)

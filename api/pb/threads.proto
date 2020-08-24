@@ -23,26 +23,42 @@ message GetTokenReply {
 message NewDBRequest {
     bytes dbID = 1;
     repeated CollectionConfig collections = 2;
+    string name = 3;
 }
 
 message NewDBFromAddrRequest {
     bytes addr = 1;
     bytes key = 2;
     repeated CollectionConfig collections = 3;
+    string name = 4;
+    bool block = 5;
 }
 
 message CollectionConfig {
     string name = 1;
     bytes schema = 2;
-    repeated IndexConfig indexes = 3;
+    repeated Index indexes = 3;
+    string writeValidator = 4;
+    string readFilter = 5;
+}
 
-    message IndexConfig {
-        string path = 1;
-        bool unique = 2;
-    }
+message Index {
+    string path = 1;
+    bool unique = 2;
 }
 
 message NewDBReply {}
+
+message ListDBsRequest {}
+
+message ListDBsReply {
+    repeated DB dbs = 1;
+
+    message DB {
+        bytes dbID = 1;
+        GetDBInfoReply info = 2;
+    }
+}
 
 message GetDBInfoRequest {
     bytes dbID = 1;
@@ -51,6 +67,7 @@ message GetDBInfoRequest {
 message GetDBInfoReply {
     repeated bytes addrs = 1;
     bytes key = 2;
+    string name = 3;
 }
 
 message DeleteDBRequest {
@@ -65,6 +82,50 @@ message NewCollectionRequest {
 }
 
 message NewCollectionReply {}
+
+message UpdateCollectionRequest {
+    bytes dbID = 1;
+    CollectionConfig config = 2;
+}
+
+message UpdateCollectionReply {}
+
+message DeleteCollectionRequest {
+    bytes dbID = 1;
+    string name = 2;
+}
+
+message DeleteCollectionReply {}
+
+message GetCollectionInfoRequest {
+    bytes dbID = 1;
+    string name = 2;
+}
+
+message GetCollectionInfoReply {
+    string name = 1;
+    bytes schema = 2;
+    repeated Index indexes = 3;
+    string writeValidator = 4;
+    string readFilter = 5;
+}
+
+message GetCollectionIndexesRequest {
+    bytes dbID = 1;
+    string name = 2;
+}
+
+message GetCollectionIndexesReply {
+    repeated Index indexes = 1;
+}
+
+message ListCollectionsRequest {
+    bytes dbID = 1;
+}
+
+message ListCollectionsReply {
+    repeated GetCollectionInfoReply collections = 1;
+}
 
 message CreateRequest {
     bytes dbID = 1;
@@ -201,9 +262,17 @@ service API {
     rpc GetToken(stream GetTokenRequest) returns (stream GetTokenReply) {}
     rpc NewDB(NewDBRequest) returns (NewDBReply) {}
     rpc NewDBFromAddr(NewDBFromAddrRequest) returns (NewDBReply) {}
+    rpc ListDBs(ListDBsRequest) returns (ListDBsReply) {}
     rpc GetDBInfo(GetDBInfoRequest) returns (GetDBInfoReply) {}
     rpc DeleteDB(DeleteDBRequest) returns (DeleteDBReply) {}
     rpc NewCollection(NewCollectionRequest) returns (NewCollectionReply) {}
+    rpc UpdateCollection(UpdateCollectionRequest) returns (UpdateCollectionReply) {}
+    rpc DeleteCollection(DeleteCollectionRequest) returns (DeleteCollectionReply) {}
+    rpc GetCollectionInfo(GetCollectionInfoRequest) returns (GetCollectionInfoReply) {}
+    rpc GetCollectionIndexes(GetCollectionIndexesRequest) returns (GetCollectionIndexesReply) {
+        option deprecated = true;
+    }
+    rpc ListCollections(ListCollectionsRequest) returns (ListCollectionsReply) {}
     rpc Create(CreateRequest) returns (CreateReply) {}
     rpc Save(SaveRequest) returns (SaveReply) {}
     rpc Delete(DeleteRequest) returns (DeleteReply) {}

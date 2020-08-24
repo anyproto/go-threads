@@ -1,6 +1,7 @@
 package util
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -9,7 +10,8 @@ import (
 	"strings"
 
 	"github.com/alecthomas/jsonschema"
-	logging "github.com/ipfs/go-log"
+	ipfslite "github.com/hsanjuan/ipfs-lite"
+	logging "github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p-core/crypto"
 	"github.com/libp2p/go-libp2p-core/peer"
 	swarm "github.com/libp2p/go-libp2p-swarm"
@@ -22,9 +24,8 @@ import (
 
 var (
 	bootstrapPeers = []string{
-		"/ip4/104.210.43.77/tcp/4001/ipfs/12D3KooWSdGmRz5JQidqrtmiPGVHkStXpbSAMnbCcW8abq6zuiDP", // us-west
-		"/ip4/20.39.232.27/tcp/4001/ipfs/12D3KooWLnUv9MWuRM6uHirRPBM4NwRj54n4gNNnBtiFiwPiv3Up",  // eu-west
-		"/ip4/34.87.103.105/tcp/4001/ipfs/12D3KooWA5z2C3z1PNKi36Bw1MxZhBD8nv7UbB7YQP6WcSWYNwRQ", // as-southeast
+		"/ip4/104.210.43.77/tcp/4001/p2p/QmR69wtWUMm1TWnmuD4JqC1TWLZcc8iR2KrTenfZZbiztd",       // us-west-1 hub ipfs host
+		"/ip4/104.210.43.77/tcp/4006/p2p/12D3KooWQEtCBXMKjVas6Ph1pUHG2T4Lc9j1KvnAipojP2xcKU7n", // us-west-1 hub threads host
 	}
 )
 
@@ -37,11 +38,20 @@ func CanDial(addr ma.Multiaddr, s *swarm.Swarm) bool {
 }
 
 // SetupDefaultLoggingConfig sets up a standard logging configuration.
-func SetupDefaultLoggingConfig(repoPath string) {
-	_ = os.Setenv("GOLOG_LOG_FMT", "color")
-	_ = os.Setenv("GOLOG_FILE", filepath.Join(repoPath, "log", "threads.log"))
-	logging.SetupLogging()
-	logging.SetAllLoggers(logging.LevelError)
+func SetupDefaultLoggingConfig(repoPath string) error {
+	folder := filepath.Join(repoPath, "log")
+	if err := os.MkdirAll(folder, os.ModePerm); err != nil {
+		return err
+	}
+	c := logging.Config{
+		Format: logging.ColorizedOutput,
+		Stderr: true,
+		File:   filepath.Join(folder, "threads.log"),
+		Level:  logging.LevelError,
+	}
+	logging.SetupLogging(c)
+
+	return nil
 }
 
 // SetLogLevels sets levels for the given systems.
@@ -93,11 +103,12 @@ func LoadKey(pth string) crypto.PrivKey {
 }
 
 func DefaultBoostrapPeers() []peer.AddrInfo {
-	ais, err := ParseBootstrapPeers(bootstrapPeers)
+	ipfspeers := ipfslite.DefaultBootstrapPeers()
+	textilepeers, err := ParseBootstrapPeers(bootstrapPeers)
 	if err != nil {
 		panic("coudn't parse default bootstrap peers")
 	}
-	return ais
+	return append(textilepeers, ipfspeers...)
 }
 
 func ParseBootstrapPeers(addrs []string) ([]peer.AddrInfo, error) {
@@ -182,4 +193,13 @@ func SetJSONProperty(name string, value interface{}, json []byte) []byte {
 
 func SetJSONID(id core.InstanceID, json []byte) []byte {
 	return SetJSONProperty("_id", id.String(), json)
+}
+
+func GenerateRandomBytes(n int) []byte {
+	b := make([]byte, n)
+	_, err := rand.Read(b)
+	if err != nil {
+		panic(err)
+	}
+	return b
 }

@@ -13,7 +13,7 @@ import (
 
 	"github.com/fatih/color"
 	ipfslite "github.com/hsanjuan/ipfs-lite"
-	"github.com/ipfs/go-datastore"
+	datastore "github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/query"
 	cbornode "github.com/ipfs/go-ipld-cbor"
 	logging "github.com/ipfs/go-log"
@@ -96,6 +96,7 @@ func main() {
 	net, err = common.DefaultNetwork(
 		*repo,
 		common.WithNetHostAddr(hostAddr),
+		common.WithNetPubSub(true),
 		common.WithNetDebug(*debug))
 	if err != nil {
 		log.Fatal(err)
@@ -122,6 +123,10 @@ func main() {
 	}
 	go func() {
 		for rec := range sub {
+			if err := rec.ThreadID().Validate(); err != nil {
+				logError(err)
+				continue
+			}
 			name, err := threadName(rec.ThreadID().String())
 			if err != nil {
 				logError(err)
@@ -324,6 +329,9 @@ func threadsCmd() (out string, err error) {
 			return
 		}
 		name := e.Key[strings.LastIndex(e.Key, "/")+1:]
+		if err = id.Validate(); err != nil {
+			return
+		}
 		out += pink(name) + grey(" ("+id.String()+")")
 		if i != len(all)-1 {
 			out += "\n"
@@ -400,6 +408,9 @@ func addCmd(args []string) (out string, err error) {
 		return
 	}
 
+	if err = id.Validate(); err != nil {
+		return
+	}
 	out = fmt.Sprintf("Added thread %s", id.String())
 	return
 }
@@ -440,11 +451,14 @@ func threadAddressCmd(id thread.ID) (out string, err error) {
 	if err != nil {
 		return
 	}
-	lg := info.GetOwnLog()
+	lg := info.GetFirstPrivKeyLog()
 	if lg == nil {
 		lg = &thread.LogInfo{}
 	}
 
+	if err = id.Validate(); err != nil {
+		return
+	}
 	ta, err := ma.NewMultiaddr("/" + thread.Name + "/" + id.String())
 	if err != nil {
 		return
@@ -548,6 +562,9 @@ func threadName(id string) (name string, err error) {
 	for _, e := range all {
 		i, err := thread.Cast(e.Value)
 		if err != nil {
+			return "", err
+		}
+		if err := i.Validate(); err != nil {
 			return "", err
 		}
 		if i.String() == id {

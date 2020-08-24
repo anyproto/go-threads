@@ -7,14 +7,14 @@ import (
 	"time"
 
 	ipfslite "github.com/hsanjuan/ipfs-lite"
-	"github.com/ipfs/go-datastore"
-	badger "github.com/ipfs/go-ds-badger"
+	datastore "github.com/ipfs/go-datastore"
 	"github.com/libp2p/go-libp2p"
 	connmgr "github.com/libp2p/go-libp2p-connmgr"
+	cconnmgr "github.com/libp2p/go-libp2p-core/connmgr"
 	host "github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
+	peerstore "github.com/libp2p/go-libp2p-core/peerstore"
 	"github.com/libp2p/go-libp2p-kad-dht/dual"
-	peerstore "github.com/libp2p/go-libp2p-peerstore"
 	"github.com/libp2p/go-libp2p-peerstore/pstoreds"
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/textileio/go-threads/core/app"
@@ -52,6 +52,10 @@ func DefaultNetwork(repoPath string, opts ...NetOption) (NetBoostrapper, error) 
 		config.HostAddr = addr
 	}
 
+	if config.ConnManager == nil {
+		config.ConnManager = connmgr.NewConnManager(100, 400, time.Second*20)
+	}
+
 	ipfsLitePath := filepath.Join(repoPath, defaultIpfsLitePath)
 	if err := os.MkdirAll(ipfsLitePath, os.ModePerm); err != nil {
 		return nil, err
@@ -75,8 +79,9 @@ func DefaultNetwork(repoPath string, opts ...NetOption) (NetBoostrapper, error) 
 		nil,
 		[]ma.Multiaddr{config.HostAddr},
 		litestore,
-		libp2p.ConnectionManager(connmgr.NewConnManager(100, 400, time.Minute)),
 		libp2p.Peerstore(pstore),
+		libp2p.ConnectionManager(config.ConnManager),
+		libp2p.DisableRelay(),
 	)
 	if err != nil {
 		cancel()
@@ -96,7 +101,7 @@ func DefaultNetwork(repoPath string, opts ...NetOption) (NetBoostrapper, error) 
 		cancel()
 		return nil, err
 	}
-	logstore, err := badger.NewDatastore(logstorePath, &badger.DefaultOptions)
+	logstore, err := ipfslite.BadgerDatastore(logstorePath)
 	if err != nil {
 		cancel()
 		litestore.Close()
@@ -114,7 +119,8 @@ func DefaultNetwork(repoPath string, opts ...NetOption) (NetBoostrapper, error) 
 
 	// Build a network
 	api, err := net.NewNetwork(ctx, h, lite.BlockStore(), lite, tstore, net.Config{
-		Debug: config.Debug,
+		Debug:  config.Debug,
+		PubSub: config.PubSub,
 	}, config.GRPCOptions...)
 	if err != nil {
 		cancel()
@@ -139,8 +145,10 @@ func DefaultNetwork(repoPath string, opts ...NetOption) (NetBoostrapper, error) 
 
 type NetConfig struct {
 	HostAddr    ma.Multiaddr
+	ConnManager cconnmgr.ConnManager
 	Debug       bool
 	GRPCOptions []grpc.ServerOption
+	PubSub      bool
 }
 
 type NetOption func(c *NetConfig) error
@@ -148,6 +156,13 @@ type NetOption func(c *NetConfig) error
 func WithNetHostAddr(addr ma.Multiaddr) NetOption {
 	return func(c *NetConfig) error {
 		c.HostAddr = addr
+		return nil
+	}
+}
+
+func WithConnectionManager(cm cconnmgr.ConnManager) NetOption {
+	return func(c *NetConfig) error {
+		c.ConnManager = cm
 		return nil
 	}
 }
@@ -162,6 +177,13 @@ func WithNetDebug(enabled bool) NetOption {
 func WithNetGRPCOptions(opts ...grpc.ServerOption) NetOption {
 	return func(c *NetConfig) error {
 		c.GRPCOptions = opts
+		return nil
+	}
+}
+
+func WithNetPubSub(enabled bool) NetOption {
+	return func(c *NetConfig) error {
+		c.PubSub = enabled
 		return nil
 	}
 }

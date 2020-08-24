@@ -174,6 +174,99 @@ func TestNet_AddThread(t *testing.T) {
 	}
 }
 
+func TestNet_CreateThreadManaged(t *testing.T) {
+	t.Parallel()
+	n := makeNetwork(t)
+	defer n.Close()
+
+	ctx := context.Background()
+	info, err := n.CreateThread(ctx, thread.NewIDV1(thread.Raw, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sk, _, err := crypto.GenerateEd25519Key(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Should work if trying to re-create thread with different private key
+	_, err = n.CreateThread(ctx, info.ID, core.WithLogKey(sk), core.WithThreadKey(info.Key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Should fail if trying to re-create thread with wrong (default created) read/service keys
+	_, err = n.CreateThread(ctx, info.ID)
+	if err == nil {
+		t.Fatalf("expected to fail when using wrong thread key(s)")
+	}
+	// Should work if only going to 'manage' re-created thread/log
+	_, pk, err := crypto.GenerateEd25519Key(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = n.CreateThread(ctx, info.ID, core.WithLogKey(pk), core.WithThreadKey(info.Key))
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestNet_AddThreadManaged(t *testing.T) {
+	t.Parallel()
+	n1 := makeNetwork(t)
+	defer n1.Close()
+	n2 := makeNetwork(t)
+	defer n2.Close()
+
+	n1.Host().Peerstore().AddAddrs(n2.Host().ID(), n2.Host().Addrs(), peerstore.PermanentAddrTTL)
+	n2.Host().Peerstore().AddAddrs(n1.Host().ID(), n1.Host().Addrs(), peerstore.PermanentAddrTTL)
+
+	ctx := context.Background()
+	info, err := n1.CreateThread(ctx, thread.NewIDV1(thread.Raw, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	addr, err := ma.NewMultiaddr("/p2p/" + n1.Host().ID().String() + "/thread/" + info.ID.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sk, _, err := crypto.GenerateEd25519Key(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = n2.AddThread(ctx, addr, core.WithThreadKey(info.Key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Should work if trying to re-create thread with different private key
+	_, err = n2.AddThread(ctx, addr, core.WithLogKey(sk), core.WithThreadKey(info.Key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Should fail if trying to re-create thread with wrong/missing read/service keys
+	_, err = n2.AddThread(ctx, addr)
+	if err == nil {
+		t.Fatalf("expected to fail when using wrong thread key(s)")
+	}
+	// Should work if only going to 'manage' re-created thread/log
+	_, pk, err := crypto.GenerateEd25519Key(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = n2.AddThread(ctx, addr, core.WithLogKey(pk), core.WithThreadKey(info.Key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Should work if trying to add new managed log to 'self' (note we're using n1 here)
+	sk, pk, err = crypto.GenerateEd25519Key(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = n1.AddThread(ctx, addr, core.WithLogKey(pk), core.WithThreadKey(info.Key))
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestNet_AddReplicator(t *testing.T) {
 	t.Parallel()
 	n1 := makeNetwork(t)
@@ -225,6 +318,64 @@ func TestNet_AddReplicator(t *testing.T) {
 	}
 	if len(info3.Logs[0].Addrs) != 2 {
 		t.Fatalf("expected 2 addresses got %d", len(info3.Logs[0].Addrs))
+	}
+}
+
+func TestNet_AddReplicatorManaged(t *testing.T) {
+	t.Parallel()
+	n1 := makeNetwork(t)
+	defer n1.Close()
+	n2 := makeNetwork(t)
+	defer n2.Close()
+
+	n1.Host().Peerstore().AddAddrs(n2.Host().ID(), n2.Host().Addrs(), peerstore.PermanentAddrTTL)
+	n2.Host().Peerstore().AddAddrs(n1.Host().ID(), n1.Host().Addrs(), peerstore.PermanentAddrTTL)
+
+	// Create managed thread
+	tid := thread.NewIDV1(thread.Raw, 32)
+	ctx := context.Background()
+	_, pk, err := crypto.GenerateEd25519Key(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := n1.CreateThread(ctx, tid, core.WithLogKey(pk))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	addr, err := ma.NewMultiaddr("/p2p/" + n2.Host().ID().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = n1.AddReplicator(ctx, info.ID, addr); err != nil {
+		t.Fatal(err)
+	}
+
+	info2, err := n1.GetThread(context.Background(), info.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(info2.Logs) != 1 {
+		t.Fatalf("expected 1 log got %d", len(info2.Logs))
+	}
+	if len(info2.Logs[0].Addrs) != 2 {
+		t.Fatalf("expected 2 addresses got %d", len(info2.Logs[0].Addrs))
+	}
+
+	info3, err := n2.GetThread(context.Background(), info.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(info3.Logs) != 1 {
+		t.Fatalf("expected 1 log got %d", len(info2.Logs))
+	}
+	if len(info3.Logs[0].Addrs) != 2 {
+		t.Fatalf("expected 2 addresses got %d", len(info3.Logs[0].Addrs))
+	}
+
+	// Should be able to add self as replicator
+	if _, err = n2.AddReplicator(ctx, info.ID, addr); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -294,7 +445,8 @@ func makeNetwork(t *testing.T) core.Net {
 		dag.NewDAGService(bsrv),
 		tstore.NewLogstore(),
 		Config{
-			Debug: true,
+			Debug:  true,
+			PubSub: true,
 		})
 	if err != nil {
 		t.Fatal(err)

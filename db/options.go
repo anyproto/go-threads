@@ -5,8 +5,9 @@ import (
 	"path/filepath"
 
 	"github.com/dgraph-io/badger/options"
-	ds "github.com/ipfs/go-datastore"
-	badger "github.com/ipfs/go-ds-badger"
+	"github.com/libp2p/go-libp2p-core/crypto"
+	ds "github.com/textileio/go-datastore"
+	badger "github.com/textileio/go-ds-badger"
 	core "github.com/textileio/go-threads/core/db"
 	"github.com/textileio/go-threads/core/thread"
 	"github.com/textileio/go-threads/jsonpatcher"
@@ -15,20 +16,6 @@ import (
 const (
 	defaultDatastorePath = "eventstore"
 )
-
-// NewDBOption takes a Config and modifies it.
-type NewDBOption func(*NewDBOptions) error
-
-// NewDBOptions has configuration parameters for a db.
-type NewDBOptions struct {
-	RepoPath    string
-	Datastore   ds.TxnDatastore
-	EventCodec  core.EventCodec
-	Debug       bool
-	LowMem      bool
-	Collections []CollectionConfig
-	Token       thread.Token
-}
 
 func newDefaultEventCodec() core.EventCodec {
 	return jsonpatcher.New()
@@ -46,53 +33,114 @@ func newDefaultDatastore(repoPath string, lowMem bool) (ds.TxnDatastore, error) 
 	return badger.NewDatastore(path, &opts)
 }
 
-// WithNewDBLowMem specifies whether or not to use low memory settings.
-func WithNewDBLowMem(low bool) NewDBOption {
-	return func(o *NewDBOptions) error {
-		o.LowMem = low
-		return nil
+// NewOptions defines options for creating a new db.
+type NewOptions struct {
+	Name        string
+	RepoPath    string
+	Token       thread.Token
+	Datastore   ds.TxnDatastore
+	Collections []CollectionConfig
+	Block       bool
+	EventCodec  core.EventCodec
+	LowMem      bool
+	Debug       bool
+	ThreadKey   thread.Key
+	LogKey      crypto.Key
+}
+
+// NewOption specifies a new db option.
+type NewOption func(*NewOptions)
+
+// WithNewName sets the db name.
+func WithNewName(name string) NewOption {
+	return func(o *NewOptions) {
+		o.Name = name
 	}
 }
 
-// WithNewDBRepoPath sets the repo path.
-func WithNewDBRepoPath(path string) NewDBOption {
-	return func(o *NewDBOptions) error {
+// WithNewRepoPath sets the repo path.
+func WithNewRepoPath(path string) NewOption {
+	return func(o *NewOptions) {
 		o.RepoPath = path
-		return nil
 	}
 }
 
-// WithNewDBDebug indicate to output debug information.
-func WithNewDBDebug(enable bool) NewDBOption {
-	return func(o *NewDBOptions) error {
-		o.Debug = enable
-		return nil
-	}
-}
-
-// WithNewDBEventCodec configure to use ec as the EventCodec
-// for transforming actions in events, and viceversa.
-func WithNewDBEventCodec(ec core.EventCodec) NewDBOption {
-	return func(o *NewDBOptions) error {
-		o.EventCodec = ec
-		return nil
-	}
-}
-
-// WithNewDBToken provides authorization for interacting with a db.
-func WithNewDBToken(t thread.Token) NewDBOption {
-	return func(o *NewDBOptions) error {
+// WithNewToken provides authorization for interacting with a db.
+func WithNewToken(t thread.Token) NewOption {
+	return func(o *NewOptions) {
 		o.Token = t
-		return nil
 	}
 }
 
-// WithNewDBCollections is used to specify collections that
+// WithNewThreadKey provides control over thread keys to use with a db.
+func WithNewThreadKey(key thread.Key) NewOption {
+	return func(o *NewOptions) {
+		o.ThreadKey = key
+	}
+}
+
+// WithNewLogKey is the public or private key used to write log records.
+// If this is just a public key, the service itself won't be able to create records.
+// In other words, all records must be pre-created and added with AddRecord.
+// If no log key is provided, one will be created internally.
+func WithNewLogKey(key crypto.Key) NewOption {
+	return func(o *NewOptions) {
+		o.LogKey = key
+	}
+}
+
+// WithNewCollections is used to specify collections that
 // will be created.
-func WithNewDBCollections(cs ...CollectionConfig) NewDBOption {
-	return func(o *NewDBOptions) error {
+func WithNewCollections(cs ...CollectionConfig) NewOption {
+	return func(o *NewOptions) {
 		o.Collections = cs
-		return nil
+	}
+}
+
+// WithNewBackfillBlock makes the caller of NewDBFromAddr block until the
+// underlying thread is completely backfilled.
+// Without this, NewDBFromAddr returns immediately and thread backfilling
+// happens in the background.
+func WithNewBackfillBlock(block bool) NewOption {
+	return func(o *NewOptions) {
+		o.Block = block
+	}
+}
+
+// WithNewEventCodec configure to use ec as the EventCodec
+// for transforming actions in events, and viceversa.
+func WithNewEventCodec(ec core.EventCodec) NewOption {
+	return func(o *NewOptions) {
+		o.EventCodec = ec
+	}
+}
+
+// WithNewLowMem specifies whether or not to use low memory settings.
+func WithNewLowMem(low bool) NewOption {
+	return func(o *NewOptions) {
+		o.LowMem = low
+	}
+}
+
+// WithNewDebug indicate to output debug information.
+func WithNewDebug(enable bool) NewOption {
+	return func(o *NewOptions) {
+		o.Debug = enable
+	}
+}
+
+// Options defines options for interacting with a db.
+type Options struct {
+	Token thread.Token
+}
+
+// Option specifies a db option.
+type Option func(*Options)
+
+// WithToken provides authorization for interacting with a db.
+func WithToken(t thread.Token) Option {
+	return func(o *Options) {
+		o.Token = t
 	}
 }
 
@@ -106,61 +154,84 @@ type TxnOption func(*TxnOptions)
 
 // WithTxnToken provides authorization for the transaction.
 func WithTxnToken(t thread.Token) TxnOption {
-	return func(args *TxnOptions) {
-		args.Token = t
+	return func(o *TxnOptions) {
+		o.Token = t
 	}
 }
 
-// NewManagedDBOptions defines options for creating a new managed db.
-type NewManagedDBOptions struct {
-	Collections []CollectionConfig
+// NewManagedOptions defines options for creating a new managed db.
+type NewManagedOptions struct {
+	Name        string
 	Token       thread.Token
+	Collections []CollectionConfig
+	Block       bool
+	ThreadKey   thread.Key
+	LogKey      crypto.Key
 }
 
-// NewManagedDBOption specifies a new managed db option.
-type NewManagedDBOption func(*NewManagedDBOptions)
+// NewManagedOption specifies a new managed db option.
+type NewManagedOption func(*NewManagedOptions)
 
-// WithNewManagedDBCollections is used to specify collections that
+// WithNewManagedName assigns a name to a new managed db.
+func WithNewManagedName(name string) NewManagedOption {
+	return func(o *NewManagedOptions) {
+		o.Name = name
+	}
+}
+
+// WithNewManagedToken provides authorization for creating a new managed db.
+func WithNewManagedToken(t thread.Token) NewManagedOption {
+	return func(o *NewManagedOptions) {
+		o.Token = t
+	}
+}
+
+// WithNewManagedThreadKey provides control over thread keys to use with a managed db.
+func WithNewManagedThreadKey(key thread.Key) NewManagedOption {
+	return func(o *NewManagedOptions) {
+		o.ThreadKey = key
+	}
+}
+
+// WithNewManagedLogKey is the public or private key used to write log records.
+// If this is just a public key, the service itself won't be able to create records.
+// In other words, all records must be pre-created and added with AddRecord.
+// If no log key is provided, one will be created internally.
+func WithNewManagedLogKey(key crypto.Key) NewManagedOption {
+	return func(o *NewManagedOptions) {
+		o.LogKey = key
+	}
+}
+
+// WithNewManagedCollections is used to specify collections that
 // will be created in a managed db.
-func WithNewManagedDBCollections(cs ...CollectionConfig) NewManagedDBOption {
-	return func(args *NewManagedDBOptions) {
-		args.Collections = cs
+func WithNewManagedCollections(cs ...CollectionConfig) NewManagedOption {
+	return func(o *NewManagedOptions) {
+		o.Collections = cs
 	}
 }
 
-// WithNewManagedDBToken provides authorization for creating a new managed db.
-func WithNewManagedDBToken(t thread.Token) NewManagedDBOption {
-	return func(args *NewManagedDBOptions) {
-		args.Token = t
+// WithNewBackfillBlock makes the caller of NewDBFromAddr block until the
+// underlying thread is completely backfilled.
+// Without this, NewDBFromAddr returns immediately and thread backfilling
+// happens in the background.
+func WithNewManagedBackfillBlock(block bool) NewManagedOption {
+	return func(o *NewManagedOptions) {
+		o.Block = block
 	}
 }
 
-// ManagedDBOptions defines options for interacting with a managed db.
-type ManagedDBOptions struct {
+// ManagedOptions defines options for interacting with a managed db.
+type ManagedOptions struct {
 	Token thread.Token
 }
 
-// ManagedDBOption specifies a managed db option.
-type ManagedDBOption func(*ManagedDBOptions)
+// ManagedOption specifies a managed db option.
+type ManagedOption func(*ManagedOptions)
 
-// WithManagedDBToken provides authorization for interacting with a managed db.
-func WithManagedDBToken(t thread.Token) ManagedDBOption {
-	return func(args *ManagedDBOptions) {
-		args.Token = t
-	}
-}
-
-// InviteInfoOptions defines options getting DB invite info.
-type InviteInfoOptions struct {
-	Token thread.Token
-}
-
-// InviteInfoOption specifies a managed db option.
-type InviteInfoOption func(*InviteInfoOptions)
-
-// WithInviteInfoToken provides authorization for accessing DB invite info.
-func WithInviteInfoToken(t thread.Token) InviteInfoOption {
-	return func(args *InviteInfoOptions) {
-		args.Token = t
+// WithManagedToken provides authorization for interacting with a managed db.
+func WithManagedToken(t thread.Token) ManagedOption {
+	return func(o *ManagedOptions) {
+		o.Token = t
 	}
 }

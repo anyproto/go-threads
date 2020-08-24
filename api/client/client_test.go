@@ -1,6 +1,7 @@
 package client_test
 
 import (
+	"bytes"
 	"context"
 	crand "crypto/rand"
 	"encoding/json"
@@ -68,12 +69,43 @@ func TestClient_NewDBFromAddr(t *testing.T) {
 	id := thread.NewIDV1(thread.Raw, 32)
 	err := client1.NewDB(context.Background(), id)
 	checkErr(t, err)
-	addrs, key, err := client1.GetDBInfo(context.Background(), id)
+	info, err := client1.GetDBInfo(context.Background(), id)
 	checkErr(t, err)
 
 	t.Run("test new db from address", func(t *testing.T) {
-		if err = client2.NewDBFromAddr(context.Background(), addrs[0], key); err != nil {
+		if err = client2.NewDBFromAddr(context.Background(), info.Addrs[0], info.Key); err != nil {
 			t.Fatalf("failed to create new db from address: %v", err)
+		}
+	})
+}
+
+func TestClient_ListDBs(t *testing.T) {
+	t.Parallel()
+	client, done := setup(t)
+	defer done()
+
+	t.Run("test list dbs", func(t *testing.T) {
+		id1 := thread.NewIDV1(thread.Raw, 32)
+		name1 := "db1"
+		err := client.NewDB(context.Background(), id1, db.WithNewManagedName(name1))
+		checkErr(t, err)
+		id2 := thread.NewIDV1(thread.Raw, 32)
+		name2 := "db2"
+		err = client.NewDB(context.Background(), id2, db.WithNewManagedName(name2))
+		checkErr(t, err)
+
+		list, err := client.ListDBs(context.Background())
+		if err != nil {
+			t.Fatalf("failed to list dbs: %v", err)
+		}
+		if len(list) != 2 {
+			t.Fatalf("expected 2 dbs, but got %v", len(list))
+		}
+		if list[id1].Name != name1 {
+			t.Fatalf("expected name to be %s, but got %s", name1, list[id1].Name)
+		}
+		if list[id2].Name != name2 {
+			t.Fatalf("expected name to be %s, but got %s", name2, list[id2].Name)
 		}
 	})
 }
@@ -88,14 +120,14 @@ func TestClient_GetDBInfo(t *testing.T) {
 		err := client.NewDB(context.Background(), id)
 		checkErr(t, err)
 
-		addrs, key, err := client.GetDBInfo(context.Background(), id)
+		info, err := client.GetDBInfo(context.Background(), id)
 		if err != nil {
-			t.Fatalf("failed to create collection: %v", err)
+			t.Fatalf("failed to get db info: %v", err)
 		}
-		if !key.Defined() {
+		if !info.Key.Defined() {
 			t.Fatal("got undefined db key")
 		}
-		if len(addrs) == 0 {
+		if len(info.Addrs) == 0 {
 			t.Fatal("got empty addresses")
 		}
 	})
@@ -114,7 +146,7 @@ func TestClient_DeleteDB(t *testing.T) {
 		if err = client.DeleteDB(context.Background(), id); err != nil {
 			t.Fatalf("failed to delete db: %v", err)
 		}
-		if _, _, err := client.GetDBInfo(context.Background(), id); err == nil {
+		if _, err := client.GetDBInfo(context.Background(), id); err == nil {
 			t.Fatal("deleted db still exists")
 		}
 	})
@@ -131,7 +163,155 @@ func TestClient_NewCollection(t *testing.T) {
 		checkErr(t, err)
 		err = client.NewCollection(context.Background(), id, db.CollectionConfig{Name: collectionName, Schema: util.SchemaFromSchemaString(schema)})
 		if err != nil {
-			t.Fatalf("failed add new collection: %v", err)
+			t.Fatalf("failed to add new collection: %v", err)
+		}
+	})
+}
+
+func TestClient_UpdateCollection(t *testing.T) {
+	t.Parallel()
+	client, done := setup(t)
+	defer done()
+
+	id := thread.NewIDV1(thread.Raw, 32)
+	err := client.NewDB(context.Background(), id)
+	checkErr(t, err)
+	err = client.NewCollection(context.Background(), id, db.CollectionConfig{Name: collectionName, Schema: util.SchemaFromSchemaString(schema)})
+	checkErr(t, err)
+
+	t.Run("test update collection", func(t *testing.T) {
+		err = client.UpdateCollection(context.Background(), id, db.CollectionConfig{
+			Name:   collectionName,
+			Schema: util.SchemaFromSchemaString(schema2),
+			Indexes: []db.Index{{
+				Path:   "age",
+				Unique: false,
+			}},
+		})
+		if err != nil {
+			t.Fatalf("failed to update collection: %v", err)
+		}
+		_, err = client.Create(context.Background(), id, collectionName, Instances{createPerson2()})
+		checkErr(t, err)
+	})
+}
+
+func TestClient_DeleteCollection(t *testing.T) {
+	t.Parallel()
+	client, done := setup(t)
+	defer done()
+
+	t.Run("test delete collection", func(t *testing.T) {
+		id := thread.NewIDV1(thread.Raw, 32)
+		err := client.NewDB(context.Background(), id)
+		checkErr(t, err)
+		err = client.NewCollection(context.Background(), id, db.CollectionConfig{Name: collectionName, Schema: util.SchemaFromSchemaString(schema)})
+		checkErr(t, err)
+
+		err = client.DeleteCollection(context.Background(), id, collectionName)
+		if err != nil {
+			t.Fatalf("failed to delete collection: %v", err)
+		}
+		_, err = client.Create(context.Background(), id, collectionName, Instances{createPerson()})
+		if err == nil {
+			t.Fatal("failed to delete collection")
+		}
+	})
+}
+
+func TestClient_GetCollectionInfo(t *testing.T) {
+	t.Parallel()
+	client, done := setup(t)
+	defer done()
+
+	t.Run("test get collection info", func(t *testing.T) {
+		id := thread.NewIDV1(thread.Raw, 32)
+		err := client.NewDB(context.Background(), id)
+		checkErr(t, err)
+		jschema := util.SchemaFromSchemaString(schema)
+		err = client.NewCollection(context.Background(), id, db.CollectionConfig{
+			Name:   collectionName,
+			Schema: jschema,
+			Indexes: []db.Index{{
+				Path:   "lastName",
+				Unique: true,
+			}},
+		})
+		checkErr(t, err)
+		info, err := client.GetCollectionInfo(context.Background(), id, collectionName)
+		checkErr(t, err)
+		if info.Name != collectionName {
+			t.Fatalf("expected %s, but got %s", collectionName, info.Name)
+		}
+		sb, err := json.Marshal(jschema)
+		checkErr(t, err)
+		if !bytes.Equal(info.Schema, sb) {
+			t.Fatalf("expected %s, but got %s", string(sb), string(info.Schema))
+		}
+		if len(info.Indexes) != 1 {
+			t.Fatalf("expected 1 indexes, but got %v", len(info.Indexes))
+		}
+	})
+}
+
+func TestClient_GetCollectionIndexes(t *testing.T) {
+	t.Parallel()
+	client, done := setup(t)
+	defer done()
+
+	t.Run("test get collection indexes", func(t *testing.T) {
+		id := thread.NewIDV1(thread.Raw, 32)
+		err := client.NewDB(context.Background(), id)
+		checkErr(t, err)
+		err = client.NewCollection(context.Background(), id, db.CollectionConfig{
+			Name:   collectionName,
+			Schema: util.SchemaFromSchemaString(schema),
+			Indexes: []db.Index{{
+				Path:   "lastName",
+				Unique: true,
+			}},
+		})
+		checkErr(t, err)
+		indexes, err := client.GetCollectionIndexes(context.Background(), id, collectionName)
+		checkErr(t, err)
+		if len(indexes) != 1 {
+			t.Fatalf("expected 1 indexes, but got %v", len(indexes))
+		}
+	})
+}
+
+func TestClient_ListCollections(t *testing.T) {
+	t.Parallel()
+	client, done := setup(t)
+	defer done()
+
+	t.Run("test list collection info", func(t *testing.T) {
+		id := thread.NewIDV1(thread.Raw, 32)
+		err := client.NewDB(context.Background(), id)
+		checkErr(t, err)
+		jschema := util.SchemaFromSchemaString(schema)
+		err = client.NewCollection(context.Background(), id, db.CollectionConfig{
+			Name:   collectionName,
+			Schema: jschema,
+			Indexes: []db.Index{{
+				Path:   "lastName",
+				Unique: true,
+			}},
+		})
+		checkErr(t, err)
+		err = client.NewCollection(context.Background(), id, db.CollectionConfig{
+			Name:   collectionName + "2",
+			Schema: jschema,
+			Indexes: []db.Index{{
+				Path:   "lastName",
+				Unique: true,
+			}},
+		})
+		checkErr(t, err)
+		list, err := client.ListCollections(context.Background(), id)
+		checkErr(t, err)
+		if len(list) != 2 {
+			t.Fatalf("expected 2 result, but got %v", len(list))
 		}
 	})
 }
@@ -150,7 +330,27 @@ func TestClient_Create(t *testing.T) {
 
 		_, err = client.Create(context.Background(), id, collectionName, Instances{createPerson()})
 		if err != nil {
-			t.Fatalf("failed to create collection: %v", err)
+			t.Fatalf("failed to create instance: %v", err)
+		}
+	})
+
+	t.Run("test collection create with missing id", func(t *testing.T) {
+		id := thread.NewIDV1(thread.Raw, 32)
+		err := client.NewDB(context.Background(), id)
+		checkErr(t, err)
+		err = client.NewCollection(context.Background(), id, db.CollectionConfig{Name: collectionName, Schema: util.SchemaFromSchemaString(schema)})
+		checkErr(t, err)
+
+		ids, err := client.Create(context.Background(), id, collectionName, Instances{&PersonWithoutID{
+			FirstName: "Adam",
+			LastName:  "Doe",
+			Age:       21,
+		}})
+		if err != nil {
+			t.Fatalf("failed to create instance: %v", err)
+		}
+		if len(ids) != 1 {
+			t.Fatal("expected a new id, got none")
 		}
 	})
 }
@@ -176,7 +376,7 @@ func TestClient_Save(t *testing.T) {
 		person.Age = 30
 		err = client.Save(context.Background(), id, collectionName, Instances{person})
 		if err != nil {
-			t.Fatalf("failed to save collection: %v", err)
+			t.Fatalf("failed to save instance: %v", err)
 		}
 	})
 }
@@ -202,7 +402,7 @@ func TestClient_Delete(t *testing.T) {
 
 		err = client.Delete(context.Background(), id, collectionName, []string{person.ID})
 		if err != nil {
-			t.Fatalf("failed to delete collection: %v", err)
+			t.Fatalf("failed to delete instance: %v", err)
 		}
 	})
 }
@@ -282,7 +482,7 @@ func TestClient_FindWithIndex(t *testing.T) {
 		err = client.NewCollection(context.Background(), id, db.CollectionConfig{
 			Name:   collectionName,
 			Schema: util.SchemaFromSchemaString(schema),
-			Indexes: []db.IndexConfig{{
+			Indexes: []db.Index{{
 				Path:   "lastName",
 				Unique: true,
 			}},
@@ -528,7 +728,7 @@ func TestClient_Listen(t *testing.T) {
 		}
 
 		go func() {
-			time.Sleep(1 * time.Second)
+			time.Sleep(time.Second)
 			person.Age = 30
 			_ = client.Save(context.Background(), id, collectionName, Instances{person})
 			person.Age = 40
@@ -618,7 +818,11 @@ func makeServer(t *testing.T) (ma.Multiaddr, func()) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	n, err := common.DefaultNetwork(dir, common.WithNetDebug(true), common.WithNetHostAddr(util.FreeLocalAddr()))
+	n, err := common.DefaultNetwork(
+		dir,
+		common.WithNetHostAddr(util.FreeLocalAddr()),
+		common.WithNetPubSub(true),
+		common.WithNetDebug(true))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -678,10 +882,16 @@ func createIdentity(t *testing.T) thread.Identity {
 
 func createPerson() *Person {
 	return &Person{
-		ID:        "",
 		FirstName: "Adam",
 		LastName:  "Doe",
 		Age:       21,
+	}
+}
+
+func createPerson2() *Person2 {
+	return &Person2{
+		FullName: "Adam Doe",
+		Age:      21,
 	}
 }
 
@@ -689,35 +899,68 @@ const (
 	collectionName = "Person"
 
 	schema = `{
-	"$id": "https://example.com/person.schema.json",
-	"$schema": "http://json-schema.org/draft-07/schema#",
-	"title": "` + collectionName + `",
-	"type": "object",
-	"required": ["_id"],
-	"properties": {
-		"_id": {
-			"type": "string",
-			"description": "The instance's id."
-		},
-		"firstName": {
-			"type": "string",
-			"description": "The person's first name."
-		},
-		"lastName": {
-			"type": "string",
-			"description": "The person's last name."
-		},
-		"age": {
-			"description": "Age in years which must be equal to or greater than zero.",
-			"type": "integer",
-			"minimum": 0
+		"$id": "https://example.com/person.schema.json",
+		"$schema": "http://json-schema.org/draft-07/schema#",
+		"title": "` + collectionName + `",
+		"type": "object",
+		"properties": {
+			"_id": {
+				"type": "string",
+				"description": "The instance's id."
+			},
+			"firstName": {
+				"type": "string",
+				"description": "The person's first name."
+			},
+			"lastName": {
+				"type": "string",
+				"description": "The person's last name."
+			},
+			"age": {
+				"description": "Age in years which must be equal to or greater than zero.",
+				"type": "integer",
+				"minimum": 0
+			}
 		}
-	}
-}`
+	}`
+
+	schema2 = `{
+		"$id": "https://example.com/person.schema.json",
+		"$schema": "http://json-schema.org/draft-07/schema#",
+		"title": "` + collectionName + `",
+		"type": "object",
+		"properties": {
+			"_id": {
+				"type": "string",
+				"description": "The instance's id."
+			},
+			"fullName": {
+				"type": "string",
+				"description": "The person's full name."
+			},
+			"age": {
+				"description": "Age in years which must be equal to or greater than zero.",
+				"type": "integer",
+				"minimum": 0
+			}
+		}
+	}`
 )
 
 type Person struct {
 	ID        string `json:"_id"`
+	FirstName string `json:"firstName,omitempty"`
+	LastName  string `json:"lastName,omitempty"`
+	Age       int    `json:"age,omitempty"`
+}
+
+type Person2 struct {
+	ID       string `json:"_id"`
+	FullName string `json:"fullName,omitempty"`
+	Age      int    `json:"age,omitempty"`
+}
+
+type PersonWithoutID struct {
 	FirstName string `json:"firstName,omitempty"`
 	LastName  string `json:"lastName,omitempty"`
 	Age       int    `json:"age,omitempty"`

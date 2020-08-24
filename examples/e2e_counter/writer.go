@@ -16,7 +16,7 @@ import (
 )
 
 type myCounter struct {
-	ID    core.InstanceID
+	ID    core.InstanceID `json:"_id"`
 	Name  string
 	Count int
 }
@@ -28,7 +28,7 @@ func runWriterPeer(repo string) {
 	checkErr(err)
 	defer n.Close()
 	id := thread.NewIDV1(thread.Raw, 32)
-	d, err := db.NewDB(context.Background(), n, id, db.WithNewDBRepoPath(repo))
+	d, err := db.NewDB(context.Background(), n, id, db.WithNewRepoPath(repo))
 	checkErr(err)
 	defer d.Close()
 
@@ -80,6 +80,8 @@ func saveThreadMultiaddrForOtherPeer(n net.Net, threadID thread.ID) {
 
 	// Create listen addr
 	id, _ := multiaddr.NewComponent("p2p", n.Host().ID().String())
+	err = threadID.Validate()
+	checkErr(err)
 	threadComp, _ := multiaddr.NewComponent("thread", threadID.String())
 
 	listenAddr := n.Host().Addrs()[0].Encapsulate(id).Encapsulate(threadComp).String()

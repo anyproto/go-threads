@@ -2,17 +2,20 @@ package db
 
 import (
 	"context"
+	"errors"
 	"io/ioutil"
 	"os"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	ds "github.com/ipfs/go-datastore"
 	format "github.com/ipfs/go-ipld-format"
 	"github.com/multiformats/go-multiaddr"
+	ds "github.com/textileio/go-datastore"
 	"github.com/textileio/go-threads/common"
+	"github.com/textileio/go-threads/core/app"
 	core "github.com/textileio/go-threads/core/db"
 	"github.com/textileio/go-threads/core/thread"
 	"github.com/textileio/go-threads/util"
@@ -31,7 +34,7 @@ func TestE2EWithThreads(t *testing.T) {
 	defer n1.Close()
 
 	id1 := thread.NewIDV1(thread.Raw, 32)
-	d1, err := NewDB(context.Background(), n1, id1, WithNewDBRepoPath(tmpDir1))
+	d1, err := NewDB(context.Background(), n1, id1, WithNewRepoPath(tmpDir1))
 	checkErr(t, err)
 	defer d1.Close()
 	c1, err := d1.NewCollection(CollectionConfig{
@@ -46,8 +49,13 @@ func TestE2EWithThreads(t *testing.T) {
 	dummyJSON = util.SetJSONProperty("Counter", 42, dummyJSON)
 	checkErr(t, c1.Save(dummyJSON))
 
+	// Make sure the thread can't be deleted directly
+	err = n1.DeleteThread(context.Background(), id1)
+	if !errors.Is(err, app.ErrThreadInUse) {
+		t.Fatal("thread should have been protected from deletion")
+	}
+
 	// Boilerplate to generate peer1 thread-addr
-	// @todo: This should be a network method
 	peer1Addr := n1.Host().Addrs()[0]
 	peer1ID, err := multiaddr.NewComponent("p2p", n1.Host().ID().String())
 	checkErr(t, err)
@@ -70,7 +78,7 @@ func TestE2EWithThreads(t *testing.T) {
 		Name:   "dummy",
 		Schema: util.SchemaFromInstance(&dummy{}, false),
 	}
-	d2, err := NewDBFromAddr(context.Background(), n2, addr, ti.Key, WithNewDBRepoPath(tmpDir2), WithNewDBCollections(cc))
+	d2, err := NewDBFromAddr(context.Background(), n2, addr, ti.Key, WithNewRepoPath(tmpDir2), WithNewCollections(cc))
 	checkErr(t, err)
 	defer d2.Close()
 	c2 := d1.GetCollection("dummy")
@@ -91,7 +99,73 @@ func TestE2EWithThreads(t *testing.T) {
 	}
 }
 
-func TestOptions(t *testing.T) {
+func TestMissingCollection(t *testing.T) {
+	t.Parallel()
+
+	tmpDir, err := ioutil.TempDir("", "")
+	checkErr(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	n, err := common.DefaultNetwork(tmpDir, common.WithNetDebug(true), common.WithNetHostAddr(util.FreeLocalAddr()))
+	checkErr(t, err)
+	defer n.Close()
+
+	id := thread.NewIDV1(thread.Raw, 32)
+	db, err := NewDB(context.Background(), n, id, WithNewRepoPath(tmpDir))
+	checkErr(t, err)
+	defer db.Close()
+	c, err := db.NewCollection(CollectionConfig{
+		Name:   "dummy",
+		Schema: util.SchemaFromInstance(&dummy{}, false),
+	})
+	checkErr(t, err)
+	// Delete collection from map to "simulate" not having received it yet...
+	// Motivated by https://github.com/textileio/go-threads/issues/379
+	delete(db.collections, "dummy")
+	dummyJSON := util.JSONFromInstance(dummy{Name: "Textile", Counter: 0})
+	_, err = c.Create(dummyJSON)
+	if err == nil || !strings.HasSuffix(err.Error(), "not found") {
+		t.Fatal("expected error when indexing created data: collection (dummy) should not be found")
+	}
+}
+
+func TestWithNewName(t *testing.T) {
+	t.Parallel()
+	tmpDir, err := ioutil.TempDir("", "")
+	checkErr(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	n, err := common.DefaultNetwork(tmpDir, common.WithNetDebug(true), common.WithNetHostAddr(util.FreeLocalAddr()))
+	checkErr(t, err)
+
+	name := "my-db"
+	id := thread.NewIDV1(thread.Raw, 32)
+	d, err := NewDB(context.Background(), n, id, WithNewRepoPath(tmpDir), WithNewName(name))
+	checkErr(t, err)
+	if d.name != name {
+		t.Fatalf("expected name %s, got %s", name, d.name)
+	}
+
+	info, err := d.GetDBInfo()
+	checkErr(t, err)
+
+	// Re-do again to re-use key. If something wasn't closed correctly, would fail
+	checkErr(t, n.Close())
+	checkErr(t, d.Close())
+
+	time.Sleep(time.Second * 3)
+	n, err = common.DefaultNetwork(tmpDir, common.WithNetDebug(true), common.WithNetHostAddr(util.FreeLocalAddr()))
+	checkErr(t, err)
+	defer n.Close()
+	defer d.Close()
+	d, err = NewDB(context.Background(), n, id, WithNewRepoPath(tmpDir), WithNewThreadKey(info.Key))
+	checkErr(t, err)
+	if d.name != name {
+		t.Fatalf("expected name %s, got %s", name, d.name)
+	}
+}
+
+func TestWithNewEventCodec(t *testing.T) {
 	t.Parallel()
 	tmpDir, err := ioutil.TempDir("", "")
 	checkErr(t, err)
@@ -102,7 +176,7 @@ func TestOptions(t *testing.T) {
 
 	ec := &mockEventCodec{}
 	id := thread.NewIDV1(thread.Raw, 32)
-	d, err := NewDB(context.Background(), n, id, WithNewDBRepoPath(tmpDir), WithNewDBEventCodec(ec))
+	d, err := NewDB(context.Background(), n, id, WithNewRepoPath(tmpDir), WithNewEventCodec(ec))
 	checkErr(t, err)
 
 	m, err := d.NewCollection(CollectionConfig{
@@ -117,6 +191,9 @@ func TestOptions(t *testing.T) {
 		t.Fatalf("custom event codec wasn't called")
 	}
 
+	info, err := d.GetDBInfo()
+	checkErr(t, err)
+
 	// Re-do again to re-use key. If something wasn't closed correctly, would fail
 	checkErr(t, n.Close())
 	checkErr(t, d.Close())
@@ -125,7 +202,7 @@ func TestOptions(t *testing.T) {
 	n, err = common.DefaultNetwork(tmpDir, common.WithNetDebug(true), common.WithNetHostAddr(util.FreeLocalAddr()))
 	checkErr(t, err)
 	defer n.Close()
-	d, err = NewDB(context.Background(), n, id, WithNewDBRepoPath(tmpDir), WithNewDBEventCodec(ec))
+	d, err = NewDB(context.Background(), n, id, WithNewRepoPath(tmpDir), WithNewEventCodec(ec), WithNewThreadKey(info.Key))
 	checkErr(t, err)
 	checkErr(t, d.Close())
 }
@@ -352,7 +429,7 @@ type mockEventCodec struct {
 
 var _ core.EventCodec = (*mockEventCodec)(nil)
 
-func (dec *mockEventCodec) Reduce([]core.Event, ds.TxnDatastore, ds.Key, func(collection string, key ds.Key, oldData, newData []byte, txn ds.Txn) error) ([]core.ReduceAction, error) {
+func (dec *mockEventCodec) Reduce([]core.Event, ds.TxnDatastore, ds.Key, core.IndexFunc) ([]core.ReduceAction, error) {
 	dec.called = true
 	return nil, nil
 }

@@ -1,6 +1,7 @@
 package net
 
 import (
+	"bytes"
 	"context"
 	"io"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/libp2p/go-libp2p-core/peer"
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/textileio/go-threads/core/thread"
+	"google.golang.org/grpc"
 )
 
 // Net wraps API with a DAGService and libp2p host.
@@ -21,6 +23,9 @@ type Net interface {
 
 	// Host provides a network identity.
 	Host() host.Host
+
+	// RPC provides grpc server
+	RPC() *grpc.Server
 }
 
 // API is the network interface for thread orchestration.
@@ -68,4 +73,14 @@ type API interface {
 
 	// Subscribe returns a read-only channel of records.
 	Subscribe(ctx context.Context, opts ...SubOption) (<-chan ThreadRecord, error)
+}
+
+// Token is used to restrict network APIs to a single app.App.
+// In other words, a net token protects against writes and deletes
+// which are external to an app.
+type Token []byte
+
+// Equal returns whether or not the token is equal to the given value.
+func (t Token) Equal(b Token) bool {
+	return bytes.Equal(t, b)
 }

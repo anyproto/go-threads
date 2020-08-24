@@ -13,6 +13,7 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/util/metautils"
 	"github.com/libp2p/go-libp2p-core/crypto"
 	mbase "github.com/multiformats/go-multibase"
+	"github.com/textileio/go-threads/crypto/asymmetric"
 	jwted25519 "github.com/textileio/go-threads/jwt"
 	"google.golang.org/grpc/codes"
 )
@@ -22,10 +23,17 @@ import (
 // In many cases, this will just be a private key, but callers
 // can use any setup that suits their needs.
 type Identity interface {
+	encoding.BinaryMarshaler
+	encoding.BinaryUnmarshaler
+
 	// Sign the given bytes cryptographically.
 	Sign(context.Context, []byte) ([]byte, error)
-	// Return a public key paired with this identity.
+	// GetPublic returns the public key paired with this identity.
 	GetPublic() PubKey
+	// Decrypt returns decrypted data.
+	Decrypt(context.Context, []byte) ([]byte, error)
+	// Equals returns true if the identities are equal.
+	Equals(Identity) bool
 }
 
 // Libp2pIdentity wraps crypto.PrivKey, overwriting GetPublic with thread.PubKey.
@@ -38,12 +46,40 @@ func NewLibp2pIdentity(key crypto.PrivKey) Identity {
 	return &Libp2pIdentity{PrivKey: key}
 }
 
+func (p *Libp2pIdentity) MarshalBinary() ([]byte, error) {
+	return crypto.MarshalPrivateKey(p.PrivKey)
+}
+
+func (p *Libp2pIdentity) UnmarshalBinary(bytes []byte) (err error) {
+	p.PrivKey, err = crypto.UnmarshalPrivateKey(bytes)
+	if err != nil {
+		return err
+	}
+	return err
+}
+
 func (p *Libp2pIdentity) Sign(_ context.Context, msg []byte) ([]byte, error) {
 	return p.PrivKey.Sign(msg)
 }
 
 func (p *Libp2pIdentity) GetPublic() PubKey {
 	return NewLibp2pPubKey(p.PrivKey.GetPublic())
+}
+
+func (p *Libp2pIdentity) Decrypt(_ context.Context, data []byte) ([]byte, error) {
+	dk, err := asymmetric.FromPrivKey(p.PrivKey)
+	if err != nil {
+		return nil, err
+	}
+	return dk.Decrypt(data)
+}
+
+func (p *Libp2pIdentity) Equals(i Identity) bool {
+	li, ok := i.(*Libp2pIdentity)
+	if !ok {
+		return false
+	}
+	return p.PrivKey.Equals(li.PrivKey)
 }
 
 // Pubkey can be anything that provides a verify method.
@@ -53,10 +89,14 @@ type PubKey interface {
 
 	// String encodes the public key into a base32 string.
 	fmt.Stringer
-	// UnmarshalString decodes a public key from a base32 string.
+	// UnmarshalString decodes the public key from a base32 string.
 	UnmarshalString(string) error
 	// Verify that 'sig' is the signed hash of 'data'
 	Verify(data []byte, sig []byte) (bool, error)
+	// Encrypt data with the public key.
+	Encrypt([]byte) ([]byte, error)
+	// Equals returns true if the keys are equal.
+	Equals(PubKey) bool
 }
 
 // Libp2pPubKey wraps crypto.PubKey.
@@ -70,7 +110,7 @@ func NewLibp2pPubKey(key crypto.PubKey) PubKey {
 }
 
 func (p *Libp2pPubKey) MarshalBinary() ([]byte, error) {
-	return crypto.MarshalPublicKey(p)
+	return crypto.MarshalPublicKey(p.PubKey)
 }
 
 func (p *Libp2pPubKey) UnmarshalBinary(bytes []byte) (err error) {
@@ -82,7 +122,7 @@ func (p *Libp2pPubKey) UnmarshalBinary(bytes []byte) (err error) {
 }
 
 func (p *Libp2pPubKey) String() string {
-	bytes, err := crypto.MarshalPublicKey(p)
+	bytes, err := crypto.MarshalPublicKey(p.PubKey)
 	if err != nil {
 		panic(err)
 	}
@@ -100,6 +140,22 @@ func (p *Libp2pPubKey) UnmarshalString(str string) error {
 	}
 	p.PubKey, err = crypto.UnmarshalPublicKey(bytes)
 	return err
+}
+
+func (p *Libp2pPubKey) Encrypt(data []byte) ([]byte, error) {
+	ek, err := asymmetric.FromPubKey(p.PubKey)
+	if err != nil {
+		return nil, err
+	}
+	return ek.Encrypt(data)
+}
+
+func (p *Libp2pPubKey) Equals(k PubKey) bool {
+	lk, ok := k.(*Libp2pPubKey)
+	if !ok {
+		return false
+	}
+	return p.PubKey.Equals(lk.PubKey)
 }
 
 // Token is a concrete type for a JWT token string, which provides
@@ -131,18 +187,41 @@ func NewToken(issuer crypto.PrivKey, key PubKey) (tok Token, err error) {
 	return Token(str), nil
 }
 
-// Validate returns non-nil if token was issued by issuer.
-// If token is present and valid, the embedded public key is returned.
+// PubKey returns the public key encoded in the token.
+// Note: This does NOT verify the token.
+func (t Token) PubKey() (PubKey, error) {
+	if t == "" {
+		return nil, nil
+	}
+	var claims jwt.StandardClaims
+	tok, _, err := new(jwt.Parser).ParseUnverified(string(t), &claims)
+	if err != nil {
+		if tok == nil {
+			return nil, ErrTokenNotFound
+		} else {
+			return nil, ErrInvalidToken
+		}
+	}
+	key := &Libp2pPubKey{}
+	if err = key.UnmarshalString(claims.Subject); err != nil {
+		return nil, err
+	}
+	return key, nil
+}
+
+// Validate token against an issuer.
+// If token is present and was issued by issuer (is valid), the embedded public key is returned.
 // If token is not present, both the returned public key and error will be nil.
 func (t Token) Validate(issuer crypto.PrivKey) (PubKey, error) {
 	var ok bool
+	if t == "" {
+		return nil, nil
+	}
 	issuer, ok = issuer.(*crypto.Ed25519PrivateKey)
 	if !ok {
 		log.Fatal("issuer must be an Ed25519PrivateKey")
 	}
-	if t == "" {
-		return nil, nil
-	}
+
 	keyfunc := func(*jwt.Token) (interface{}, error) {
 		return issuer.GetPublic(), nil
 	}
@@ -155,7 +234,6 @@ func (t Token) Validate(issuer crypto.PrivKey) (PubKey, error) {
 			return nil, ErrInvalidToken
 		}
 	}
-
 	key := &Libp2pPubKey{}
 	if err = key.UnmarshalString(claims.Subject); err != nil {
 		return nil, err

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"sync"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/gogo/status"
@@ -15,37 +16,47 @@ import (
 	lstore "github.com/textileio/go-threads/core/logstore"
 	"github.com/textileio/go-threads/core/thread"
 	pb "github.com/textileio/go-threads/net/pb"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 )
 
 // server implements the net gRPC server.
 type server struct {
-	net *net
-	ps  *PubSub
+	sync.Mutex
+	net   *net
+	ps    *PubSub
+	conns map[peer.ID]*grpc.ClientConn
 }
 
 // newServer creates a new network server.
-func newServer(n *net) (*server, error) {
-	s := &server{net: n}
-	ps, err := pubsub.NewGossipSub(
-		n.ctx,
-		n.host,
-		pubsub.WithMessageSigning(false),
-		pubsub.WithStrictSignatureVerification(false))
-	if err != nil {
-		return nil, err
+func newServer(n *net, enablePubSub bool) (*server, error) {
+	s := &server{
+		net:   n,
+		conns: make(map[peer.ID]*grpc.ClientConn),
 	}
-	s.ps = NewPubSub(n.ctx, n.host.ID(), ps, s.pubsubHandler)
 
-	ts, err := n.store.Threads()
-	if err != nil {
-		return nil, err
-	}
-	for _, id := range ts {
-		if err := s.ps.Add(id); err != nil {
+	if enablePubSub {
+		ps, err := pubsub.NewGossipSub(
+			n.ctx,
+			n.host,
+			pubsub.WithMessageSigning(false),
+			pubsub.WithStrictSignatureVerification(false))
+		if err != nil {
 			return nil, err
 		}
+		s.ps = NewPubSub(n.ctx, n.host.ID(), ps, s.pubsubHandler)
+
+		ts, err := n.store.Threads()
+		if err != nil {
+			return nil, err
+		}
+		for _, id := range ts {
+			if err := s.ps.Add(id); err != nil {
+				return nil, err
+			}
+		}
 	}
+
 	return s, nil
 }
 

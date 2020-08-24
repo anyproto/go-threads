@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	datastore "github.com/ipfs/go-datastore"
-	"github.com/ipfs/go-datastore/query"
+	datastore "github.com/textileio/go-datastore"
+	"github.com/textileio/go-datastore/query"
 	core "github.com/textileio/go-threads/core/db"
 )
 
@@ -33,7 +33,7 @@ type op struct {
 }
 
 // SimpleTx implements the transaction interface for datastores who do
-// not have any sort of underlying transactional support
+// not have any sort of underlying transactional support.
 type SimpleTx struct {
 	ops    map[datastore.Key]op
 	lock   sync.RWMutex
