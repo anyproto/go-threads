@@ -103,6 +103,7 @@ type semaphore struct {
 	stats      *statsTracker
 }
 
+// Blocking acquire with time tracking
 func (s *semaphore) Acquire() {
 	s.stats.TrackAcquireAttempt()
 	started := time.Now()
@@ -110,6 +111,19 @@ func (s *semaphore) Acquire() {
 	acquired := time.Now()
 	s.acquiredAt = acquired
 	s.stats.TrackAcquire(acquired.Sub(started))
+}
+
+// Non-blocking acquire
+func (s *semaphore) TryAcquire() bool {
+	s.stats.TrackAcquireAttempt()
+
+	select {
+	case s.inner <- struct{}{}:
+		s.acquiredAt = time.Now()
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *semaphore) Release() {
@@ -147,4 +161,14 @@ func (p *semaphorePool) getThreadSemaphore(id thread.ID) *semaphore {
 	p.stats.TrackGetSemaphore(time.Now().Sub(started))
 
 	return s
+}
+
+func (p *semaphorePool) Stop() {
+	p.Lock()
+	defer p.Unlock()
+
+	// grab all semaphores
+	for _, s := range p.ss {
+		s.Acquire()
+	}
 }
