@@ -65,6 +65,7 @@ require (
 	github.com/prometheus/client_golang v1.7.0 // indirect
 	github.com/rs/cors v1.7.0 // indirect
 	github.com/smartystreets/goconvey v0.0.0-20190710185942-9d28bd7c0945 // indirect
+	github.com/stretchr/testify v1.5.1
 	github.com/textileio/go-datastore v0.4.5-0.20200819232101-baa577bf9422
 	github.com/textileio/go-ds-badger v0.2.5-0.20200819232634-de89720b5d6a
 	github.com/tidwall/gjson v1.3.5
