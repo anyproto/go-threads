@@ -22,10 +22,10 @@ import (
 
 // server implements the net gRPC server.
 type server struct {
-	sync.Mutex
-	net   *net
-	ps    *PubSub
-	conns map[peer.ID]*grpc.ClientConn
+	sync.Mutex // actually useless
+	net        *net
+	ps         *PubSub
+	conns      map[peer.ID]*grpc.ClientConn
 }
 
 // newServer creates a new network server.

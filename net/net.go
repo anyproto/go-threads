@@ -72,16 +72,15 @@ type net struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	pullLock  sync.Mutex
-	pullLocks map[thread.ID]chan struct{}
+	pullLocks *semaphorePool
 
 	metrics bool
 }
 
 // Config is used to specify thread instance options.
 type Config struct {
-	Debug  bool
-	PubSub bool
+	Debug   bool
+	PubSub  bool
 	Metrics bool
 }
 
@@ -100,6 +99,9 @@ func NewNetwork(ctx context.Context, h host.Host, bstore bs.Blockstore, ds forma
 		grpc_prometheus.EnableClientHandlingTimeHistogram()
 	}
 
+	// tracking thread-semaphore statistics
+	semaphoreStatsTracker := NewStatsTracker(100, []float64{0.5, 0.75, 0.95, 1}, 5*time.Minute)
+
 	ctx, cancel := context.WithCancel(ctx)
 	t := &net{
 		DAGService: ds,
@@ -111,7 +113,7 @@ func NewNetwork(ctx context.Context, h host.Host, bstore bs.Blockstore, ds forma
 		connectors: make(map[thread.ID]*app.Connector),
 		ctx:        ctx,
 		cancel:     cancel,
-		pullLocks:  make(map[thread.ID]chan struct{}),
+		pullLocks:  NewSemaphorePool(semaphoreStatsTracker),
 		metrics:    conf.Metrics,
 	}
 	t.server, err = newServer(t, conf.PubSub)
@@ -135,12 +137,8 @@ func NewNetwork(ctx context.Context, h host.Host, bstore bs.Blockstore, ds forma
 }
 
 func (n *net) Close() (err error) {
-	n.pullLock.Lock()
-	defer n.pullLock.Unlock()
 	// Wait for all thread pulls to finish
-	for _, semaph := range n.pullLocks {
-		semaph <- struct{}{}
-	}
+	n.pullLocks.Stop()
 
 	// Close peer connections and shutdown the server
 	n.server.Lock()
@@ -364,16 +362,8 @@ func (n *net) getThreadWithAddrs(id thread.ID) (info thread.Info, err error) {
 	return tinfo, nil
 }
 
-func (n *net) getThreadSemaphore(id thread.ID) chan struct{} {
-	var ptl chan struct{}
-	var ok bool
-	n.pullLock.Lock()
-	defer n.pullLock.Unlock()
-	if ptl, ok = n.pullLocks[id]; !ok {
-		ptl = make(chan struct{}, 1)
-		n.pullLocks[id] = ptl
-	}
-	return ptl
+func (n *net) getThreadSemaphore(id thread.ID) *semaphore {
+	return n.pullLocks.getThreadSemaphore(id)
 }
 
 func (n *net) PullThread(ctx context.Context, id thread.ID, opts ...core.ThreadOption) error {
@@ -387,21 +377,18 @@ func (n *net) PullThread(ctx context.Context, id thread.ID, opts ...core.ThreadO
 	return n.pullThread(ctx, id)
 }
 
-func (n *net) pullThread(ctx context.Context, id thread.ID) error {
+func (n *net) pullThread(ctx context.Context, id thread.ID) (err error) {
 	log.Debugf("pulling thread %s...", id)
 	ptl := n.getThreadSemaphore(id)
-	select {
-	case ptl <- struct{}{}:
-		err := n.pullThreadUnsafe(ctx, id)
-		if err != nil {
-			<-ptl
-			return err
-		}
-		<-ptl
-	default:
+
+	if ptl.TryAcquire() {
+		err = n.pullThreadUnsafe(ctx, id)
+		ptl.Release()
+	} else {
 		log.Warnf("pull thread %s ignored since already being pulled", id)
 	}
-	return nil
+
+	return
 }
 
 // pullThreadUnsafe for new records.
@@ -475,16 +462,12 @@ func (n *net) DeleteThread(ctx context.Context, id thread.ID, opts ...core.Threa
 
 	log.Debugf("deleting thread %s...", id)
 	ptl := n.getThreadSemaphore(id)
-	select {
-	case ptl <- struct{}{}: // Must block in case the thread is being pulled
-		err := n.deleteThread(ctx, id)
-		if err != nil {
-			<-ptl
-			return err
-		}
-		<-ptl
-	}
-	return nil
+
+	ptl.Acquire() // Must block in case the thread is being pulled
+	err := n.deleteThread(ctx, id)
+	ptl.Release()
+
+	return err
 }
 
 // deleteThread cleans up all the persistent and in-memory bits of a thread. This includes:
@@ -852,8 +835,9 @@ func (n *net) PutRecord(ctx context.Context, id thread.ID, lid peer.ID, rec core
 // putRecord adds an existing record. This method is thread-safe.
 func (n *net) putRecord(ctx context.Context, id thread.ID, lid peer.ID, rec core.Record) error {
 	tsph := n.getThreadSemaphore(id)
-	tsph <- struct{}{}
-	defer func() { <-tsph }()
+	tsph.Acquire()
+	defer tsph.Release()
+
 	return n.putRecordUnsafe(ctx, id, lid, rec)
 }
 
@@ -1163,8 +1147,9 @@ func (n *net) getOrCreateLog(id thread.ID, identity thread.PubKey) (info thread.
 // log will have cid.Undef as the current head. Is thread-safe.
 func (n *net) createExternalLogIfNotExist(tid thread.ID, lid peer.ID, pubKey crypto.PubKey, privKey crypto.PrivKey, addrs []ma.Multiaddr) error {
 	tsph := n.getThreadSemaphore(tid)
-	tsph <- struct{}{}
-	defer func() { <-tsph }()
+	tsph.Acquire()
+	defer tsph.Release()
+
 	currHeads, err := n.Store().Heads(tid, lid)
 	if err != nil {
 		return err
@@ -1243,8 +1228,9 @@ func (n *net) ensureUniqueLog(id thread.ID, key crypto.Key, identity thread.PubK
 // and will add them in the local peer store. It assumes  Is thread-safe.
 func (n *net) updateRecordsFromLog(tid thread.ID, lid peer.ID) {
 	tsph := n.getThreadSemaphore(tid)
-	tsph <- struct{}{}
-	defer func() { <-tsph }()
+	tsph.Acquire()
+	defer tsph.Release()
+
 	// Get log records for this new log
 	recs, err := n.server.getRecords(
 		n.ctx,
