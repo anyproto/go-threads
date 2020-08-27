@@ -127,8 +127,12 @@ func (s *semaphore) TryAcquire() bool {
 }
 
 func (s *semaphore) Release() {
-	<-s.inner
-	s.stats.TrackRelease(time.Since(s.acquiredAt))
+	select {
+	case <-s.inner:
+		s.stats.TrackRelease(time.Since(s.acquiredAt))
+	default:
+		log.Errorf("thread semaphore inconsistency: release before acquire!")
+	}
 }
 
 /* Pool of per-thread semaphores with stats tracking */
