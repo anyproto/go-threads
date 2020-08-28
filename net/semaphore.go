@@ -64,27 +64,27 @@ func (s *statsTracker) runSampling(period time.Duration) {
 		res.WriteString(fmt.Sprintf("acquire rate: %f /sec (%d for %v), ",
 			float64(attemptsForPeriod)/period.Seconds(), attemptsForPeriod, period))
 
-		s.writeQuantiles(&res, "semaphore acquire durations", s.acquireDuration.Quantiles(s.quantiles))
+		s.writeStats(&res, "semaphore acquire durations", s.acquireDuration)
 		res.WriteString(", ")
-		s.writeQuantiles(&res, "semaphore hold durations", s.releaseDuration.Quantiles(s.quantiles))
+		s.writeStats(&res, "semaphore hold durations", s.releaseDuration)
 		res.WriteString(", ")
-		s.writeQuantiles(&res, "time to get semaphore", s.timeToGetSemaphore.Quantiles(s.quantiles))
+		s.writeStats(&res, "time to get semaphore", s.timeToGetSemaphore)
 
 		// output in logs
 		log.Warnf("thread semaphore statistics: %s", res.String())
 	}
 }
 
-func (s *statsTracker) writeQuantiles(sb *strings.Builder, name string, results []float64) {
+func (s *statsTracker) writeStats(sb *strings.Builder, name string, w *slidingWindow) {
 	sb.WriteString(name)
-	sb.WriteString(": ")
-	if len(results) == 0 {
-		sb.WriteByte('-')
-		return
-	}
+	sb.WriteString(": [")
 
-	sb.WriteByte('[')
-	for i, sec := range results {
+	max, min := w.Extrema()
+	sb.WriteString(fmt.Sprintf("max: %v, min: %v",
+		time.Duration(max*float64(time.Second)),
+		time.Duration(min*float64(time.Second))))
+
+	for i, sec := range w.Quantiles(s.quantiles) {
 		sb.WriteString(fmt.Sprintf("q%d: %v", int(s.quantiles[i]*100), time.Duration(sec*float64(time.Second))))
 		sb.WriteString(" / ")
 	}
