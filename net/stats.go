@@ -7,25 +7,42 @@ import (
 )
 
 type slidingWindow struct {
-	buf  []float64
-	size int
-	idx  int
+	buf      []float64
+	max, min float64
+	size     int
+	idx      int
 	sync.Mutex
 }
 
 func NewSlidingWindow(size int) *slidingWindow {
-	return &slidingWindow{size: size, buf: make([]float64, size)}
+	return &slidingWindow{
+		buf:  make([]float64, size),
+		max:  math.Inf(-1),
+		min:  math.Inf(1),
+		size: size,
+	}
 }
 
 func (w *slidingWindow) Push(x float64) {
 	w.Lock()
+
 	// store
 	w.buf[w.idx] = x
+
 	// move index
 	w.idx++
 	if w.idx == w.size {
 		w.idx = 0
 	}
+
+	// update max/min
+	if x > w.max {
+		w.max = x
+	}
+	if x < w.min {
+		w.min = x
+	}
+
 	w.Unlock()
 }
 
@@ -61,4 +78,11 @@ func (w *slidingWindow) Quantiles(qs []float64) []float64 {
 	}
 
 	return results
+}
+
+func (w *slidingWindow) Extrema() (max, min float64) {
+	w.Lock()
+	max, min = w.max, w.min
+	w.Unlock()
+	return
 }
