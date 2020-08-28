@@ -100,7 +100,7 @@ func NewNetwork(ctx context.Context, h host.Host, bstore bs.Blockstore, ds forma
 	}
 
 	// tracking thread-semaphore statistics
-	semaphoreStatsTracker := NewStatsTracker(100, []float64{0.5, 0.75, 0.95, 1}, 5*time.Minute)
+	semaphoreStatsTracker := NewStatsTracker(1000, []float64{0.5, 0.75, 0.95, 1}, 5*time.Minute)
 
 	ctx, cancel := context.WithCancel(ctx)
 	t := &net{
