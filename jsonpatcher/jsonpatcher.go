@@ -60,6 +60,7 @@ func init() {
 	cbornode.RegisterCborType(patchEvent{})
 	cbornode.RegisterCborType(recordEvents{})
 	cbornode.RegisterCborType(operation{})
+	cbornode.RegisterCborType(time.Time{})
 }
 
 // New returns a JSON-Patcher EventCodec
