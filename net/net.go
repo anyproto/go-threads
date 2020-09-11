@@ -126,6 +126,8 @@ func NewNetwork(
 		}
 	}
 
+	semaphoreStatsTracker := util.NewStatsTracker(1000, []float64{0.5, 0.75, 0.95, 1}, 5*time.Minute, log.Warnf)
+
 	ctx, cancel := context.WithCancel(ctx)
 	t := &net{
 		DAGService: ds,
@@ -137,7 +139,7 @@ func NewNetwork(
 		connectors: make(map[thread.ID]*app.Connector),
 		ctx:        ctx,
 		cancel:     cancel,
-		semaphores: util.NewSemaphorePool(1),
+		semaphores: util.NewSemaphorePool(1, semaphoreStatsTracker),
 	}
 
 	t.server, err = newServer(t, conf.PubSub, dialOptions...)

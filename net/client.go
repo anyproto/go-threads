@@ -426,6 +426,7 @@ func (s *server) callablePeer(addr ma.Multiaddr) (peer.ID, bool, error) {
 
 // dial attempts to open a gRPC connection over libp2p to a peer.
 func (s *server) dial(peerID peer.ID) (pb.ServiceClient, error) {
+	// fixme why do we want to lock entire server?
 	s.Lock()
 	defer s.Unlock()
 	conn, ok := s.conns[peerID]
