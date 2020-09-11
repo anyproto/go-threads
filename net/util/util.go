@@ -84,9 +84,10 @@ type SemaphorePool struct {
 
 func (p *SemaphorePool) Get(k SemaphoreKey) *Semaphore {
 	var (
-		s     *Semaphore
-		exist bool
-		key   = k.Key()
+		s       *Semaphore
+		exist   bool
+		key     = k.Key()
+		started = time.Now()
 	)
 
 	p.mu.Lock()
@@ -95,6 +96,8 @@ func (p *SemaphorePool) Get(k SemaphoreKey) *Semaphore {
 		p.ss[key] = s
 	}
 	p.mu.Unlock()
+
+	p.stats.TrackGetSemaphore(time.Now().Sub(started))
 
 	return s
 }
