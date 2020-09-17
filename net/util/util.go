@@ -2,10 +2,69 @@ package util
 
 import (
 	"sync"
+	"time"
 
+	prom "github.com/prometheus/client_golang/prometheus"
 	apipb "github.com/textileio/go-threads/net/api/pb"
 	netpb "github.com/textileio/go-threads/net/pb"
 )
+
+var (
+	semaphoreAcquireCounter = prom.NewCounter(prom.CounterOpts{
+		Namespace: "threads",
+		Subsystem: "net",
+		Name:      "semaphore_acquire_total",
+		Help:      "Number of semaphore acquire attempts",
+	})
+
+	semaphoreAcquireDuration = prom.NewHistogram(prom.HistogramOpts{
+		Namespace: "threads",
+		Subsystem: "net",
+		Name:      "semaphore_acquire_duration_seconds",
+		Help:      "Time to acquire semaphore",
+		Buckets:   MetricTimeBuckets(semaDurationScale),
+	})
+
+	semaphoreHoldDuration = prom.NewHistogram(prom.HistogramOpts{
+		Namespace: "threads",
+		Subsystem: "net",
+		Name:      "semaphore_hold_duration_seconds",
+		Help:      "Time while semaphore is held by the process",
+		Buckets:   MetricTimeBuckets(semaDurationScale),
+	})
+
+	semaDurationScale = []time.Duration{
+		2 * time.Microsecond,
+		8 * time.Microsecond,
+		32 * time.Microsecond,
+		128 * time.Microsecond,
+		512 * time.Microsecond,
+		2 * time.Millisecond,
+		8 * time.Millisecond,
+		32 * time.Millisecond,
+		128 * time.Millisecond,
+		512 * time.Millisecond,
+		2 * time.Second,
+		8 * time.Second,
+		30 * time.Second,
+		2 * time.Minute,
+		4 * time.Minute,
+		6 * time.Minute,
+		8 * time.Minute,
+	}
+)
+
+func MetricTimeBuckets(scale []time.Duration) []float64 {
+	buckets := make([]float64, len(scale))
+	for i, b := range scale {
+		buckets[i] = b.Seconds()
+	}
+	return buckets
+}
+
+func MetricObserveSeconds(hist prom.Histogram, started time.Time) {
+	hist.Observe(float64(time.Since(started)) / float64(time.Second))
+}
 
 func RecFromServiceRec(r *netpb.Log_Record) *apipb.Record {
 	return &apipb.Record{
@@ -30,18 +89,28 @@ func NewSemaphore(capacity int) *Semaphore {
 }
 
 type Semaphore struct {
-	inner chan struct{}
+	inner    chan struct{}
+	acquired time.Time
 }
 
 // Blocking acquire
 func (s *Semaphore) Acquire() {
+	semaphoreAcquireCounter.Inc()
+	started := time.Now()
+
 	s.inner <- struct{}{}
+
+	s.acquired = time.Now()
+	MetricObserveSeconds(semaphoreAcquireDuration, started)
 }
 
 // Non-blocking acquire
 func (s *Semaphore) TryAcquire() bool {
+	semaphoreAcquireCounter.Inc()
+
 	select {
 	case s.inner <- struct{}{}:
+		s.acquired = time.Now()
 		return true
 	default:
 		return false
@@ -49,8 +118,11 @@ func (s *Semaphore) TryAcquire() bool {
 }
 
 func (s *Semaphore) Release() {
+	acquired := s.acquired
+
 	select {
 	case <-s.inner:
+		MetricObserveSeconds(semaphoreHoldDuration, acquired)
 	default:
 		panic("thread semaphore inconsistency: release before acquire!")
 	}
@@ -95,4 +167,10 @@ func (p *SemaphorePool) Stop() {
 	for _, s := range p.ss {
 		s.Acquire()
 	}
+}
+
+func init() {
+	prom.MustRegister(semaphoreAcquireCounter)
+	prom.MustRegister(semaphoreAcquireDuration)
+	prom.MustRegister(semaphoreHoldDuration)
 }
