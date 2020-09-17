@@ -175,7 +175,7 @@ func (s *server) getRecords(
 	offsets map[peer.ID]cid.Cid,
 	limit int,
 ) (map[peer.ID][]core.Record, error) {
-	sema := s.net.semaphores.Get(logSemaphore{tid, lid})
+	sema := s.net.semaphores.Get(threadSemaphore(tid))
 	if !sema.TryAcquire() {
 		return nil, errConcurrentPull
 	}
