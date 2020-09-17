@@ -62,7 +62,7 @@ var (
 )
 
 var (
-	metricsScrapeAddr = ":7171"
+	metricsScrapeAddr = "0.0.0.0:7273"
 	metricsEndpoint   = "/threads/metrics"
 
 	pullThreadCounter = prom.NewCounter(prom.CounterOpts{
@@ -112,9 +112,7 @@ func init() {
 	prom.MustRegister(pullThreadDuration)
 
 	http.Handle(metricsEndpoint, promhttp.Handler())
-	if err := http.ListenAndServe(metricsScrapeAddr, nil); err != nil {
-		log.Fatalf("serving threads metrics: %v", err)
-	}
+	http.ListenAndServe(metricsScrapeAddr, nil)
 }
 
 var (
