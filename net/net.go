@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +21,8 @@ import (
 	pstore "github.com/libp2p/go-libp2p-core/peerstore"
 	gostream "github.com/libp2p/go-libp2p-gostream"
 	ma "github.com/multiformats/go-multiaddr"
+	prom "github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/textileio/go-threads/broadcast"
 	"github.com/textileio/go-threads/cbor"
 	"github.com/textileio/go-threads/core/app"
@@ -57,6 +60,62 @@ var (
 	// tokenChallengeTimeout is the duration of time given to an identity to complete a token challenge.
 	tokenChallengeTimeout = time.Minute
 )
+
+var (
+	metricsScrapeAddr = ":7171"
+	metricsEndpoint   = "/threads/metrics"
+
+	pullThreadCounter = prom.NewCounter(prom.CounterOpts{
+		Namespace: "threads",
+		Subsystem: "net",
+		Name:      "pull_thread_total",
+		Help:      "Number of pull thread attempts",
+	})
+
+	pullThreadDuration = prom.NewHistogram(prom.HistogramOpts{
+		Namespace: "threads",
+		Subsystem: "net",
+		Name:      "pull_thread_duration_seconds",
+		Help:      "Pulling process duration",
+		Buckets: timeBuckets([]time.Duration{
+			2 * time.Millisecond,
+			4 * time.Millisecond,
+			8 * time.Millisecond,
+			16 * time.Millisecond,
+			32 * time.Millisecond,
+			64 * time.Millisecond,
+			128 * time.Millisecond,
+			256 * time.Millisecond,
+			512 * time.Millisecond,
+			1024 * time.Millisecond,
+			2 * time.Second,
+			4 * time.Second,
+			8 * time.Second,
+			16 * time.Second,
+			32 * time.Second,
+			64 * time.Second,
+			128 * time.Second,
+		}),
+	})
+
+	timeBuckets = func(scale []time.Duration) []float64 {
+		buckets := make([]float64, len(scale))
+		for i, b := range scale {
+			buckets[i] = b.Seconds()
+		}
+		return buckets
+	}
+)
+
+func init() {
+	prom.MustRegister(pullThreadCounter)
+	prom.MustRegister(pullThreadDuration)
+
+	http.Handle(metricsEndpoint, promhttp.Handler())
+	if err := http.ListenAndServe(metricsScrapeAddr, nil); err != nil {
+		log.Fatalf("serving threads metrics: %v", err)
+	}
+}
 
 var (
 	_ util.SemaphoreKey = (*logSemaphore)(nil)
@@ -397,6 +456,12 @@ func (n *net) PullThread(ctx context.Context, id thread.ID, opts ...core.ThreadO
 
 // pullThread for the new records. This method is thread-safe.
 func (n *net) pullThread(ctx context.Context, id thread.ID) error {
+	started := time.Now()
+	pullThreadCounter.Inc()
+	defer func() {
+		pullThreadDuration.Observe(float64(time.Since(started)) / float64(time.Second))
+	}()
+
 	info, err := n.store.GetThread(id)
 	if err != nil {
 		return err
