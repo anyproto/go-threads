@@ -126,6 +126,7 @@ func (t threadSemaphore) Key() string {
 	return string(t)
 }
 
+// FIXME is fine-grained control over logs necessary?
 type logSemaphore struct {
 	t thread.ID
 	l peer.ID
@@ -454,6 +455,13 @@ func (n *net) PullThread(ctx context.Context, id thread.ID, opts ...core.ThreadO
 
 // pullThread for the new records. This method is thread-safe.
 func (n *net) pullThread(ctx context.Context, id thread.ID) error {
+	sema := n.semaphores.Get(threadSemaphore(id))
+	if !sema.TryAcquire() {
+		log.Debugf("skip pulling thread %s: concurrent pull in progress", id)
+		return nil
+	}
+	defer sema.Release()
+
 	started := time.Now()
 	pullThreadCounter.Inc()
 	defer func() {
@@ -495,11 +503,7 @@ func (n *net) pullThread(ctx context.Context, id thread.ID) error {
 			// Pull from addresses
 			recs, err := n.server.getRecords(ctx, id, lg.ID, offsets, MaxPullLimit)
 			if err != nil {
-				if errors.Is(err, errConcurrentPull) {
-					log.Debugf("skip updating thread %s (log %s): concurrent pull in progress", id, lg.ID)
-				} else {
-					log.Error(err)
-				}
+				log.Error(err)
 				return
 			}
 
@@ -1385,6 +1389,13 @@ func (n *net) ensureUniqueLog(id thread.ID, key crypto.Key, identity thread.PubK
 // updateRecordsFromLog will fetch lid addrs for new logs & records,
 // and will add them in the local peer store. Method is thread-safe.
 func (n *net) updateRecordsFromLog(tid thread.ID, lid peer.ID) {
+	sema := n.semaphores.Get(threadSemaphore(tid))
+	if !sema.TryAcquire() {
+		log.Debugf("skip updating thread %s (log %s): concurrent pull in progress", tid, lid)
+		return
+	}
+	defer sema.Release()
+
 	// Get log records for this new log
 	recs, err := n.server.getRecords(
 		n.ctx,
@@ -1393,11 +1404,7 @@ func (n *net) updateRecordsFromLog(tid thread.ID, lid peer.ID) {
 		map[peer.ID]cid.Cid{lid: cid.Undef},
 		MaxPullLimit)
 	if err != nil {
-		if errors.Is(err, errConcurrentPull) {
-			log.Debugf("skip updating thread %s (log %s): concurrent pull in progress", tid, lid)
-		} else {
-			log.Error(err)
-		}
+		log.Error(err)
 		return
 	}
 
