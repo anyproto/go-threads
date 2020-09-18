@@ -112,7 +112,7 @@ func init() {
 	prom.MustRegister(pullThreadDuration)
 
 	http.Handle(metricsEndpoint, promhttp.Handler())
-	http.ListenAndServe(metricsScrapeAddr, nil)
+	go http.ListenAndServe(metricsScrapeAddr, nil)
 }
 
 var (
