@@ -12,7 +12,7 @@ import (
 
 	"github.com/ipfs/go-cid"
 	bs "github.com/ipfs/go-ipfs-blockstore"
-	format "github.com/ipfs/go-ipld-format"
+	"github.com/ipfs/go-ipld-format"
 	logging "github.com/ipfs/go-log"
 	"github.com/libp2p/go-libp2p-core/crypto"
 	"github.com/libp2p/go-libp2p-core/host"
@@ -386,7 +386,6 @@ func (n *net) PullThread(ctx context.Context, id thread.ID, opts ...core.ThreadO
 }
 
 func (n *net) pullThread(ctx context.Context, id thread.ID) error {
-	log.Debugf("pulling thread %s...", id)
 	ptl := n.getThreadSemaphore(id)
 	select {
 	case ptl <- struct{}{}:

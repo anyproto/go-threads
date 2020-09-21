@@ -51,8 +51,7 @@ type operation struct {
 	JSONPatch  []byte
 }
 
-type jsonPatcher struct {
-}
+type jsonPatcher struct{}
 
 var _ core.EventCodec = (*jsonPatcher)(nil)
 
@@ -60,7 +59,6 @@ func init() {
 	cbornode.RegisterCborType(patchEvent{})
 	cbornode.RegisterCborType(recordEvents{})
 	cbornode.RegisterCborType(operation{})
-	cbornode.RegisterCborType(time.Time{})
 }
 
 // New returns a JSON-Patcher EventCodec
@@ -91,7 +89,7 @@ func (jp *jsonPatcher) Create(actions []core.Action) ([]core.Event, format.Node,
 			return nil, nil, err
 		}
 		revents.Patches[i] = patchEvent{
-			Timestamp:      time.Now(),
+			Timestamp:      time.Now().UnixNano(),
 			ID:             actions[i].InstanceID,
 			CollectionName: actions[i].CollectionName,
 			Patch:          *op,
@@ -121,7 +119,7 @@ func (jp *jsonPatcher) Reduce(events []core.Event, datastore ds.TxnDatastore, ba
 			return false
 		}
 
-		return ei.Timestamp.Before(ej.Timestamp)
+		return ei.time().Before(ej.time())
 	})
 
 	actions := make([]core.ReduceAction, len(events))
@@ -240,18 +238,34 @@ func deleteEvent(id core.InstanceID) (*operation, error) {
 }
 
 type patchEvent struct {
-	Timestamp      time.Time
+	Timestamp      interface{}
 	ID             core.InstanceID
 	CollectionName string
 	Patch          operation
 }
 
 func (je patchEvent) Time() []byte {
-	t := je.Timestamp.UnixNano()
+	var nanos int64
+	switch ts := je.Timestamp.(type) {
+	case time.Time:
+		nanos = ts.UnixNano()
+	case int64:
+		nanos = ts
+	}
 	buf := new(bytes.Buffer)
 	// Use big endian to preserve lexicographic sorting
-	_ = binary.Write(buf, binary.BigEndian, t)
+	_ = binary.Write(buf, binary.BigEndian, nanos)
 	return buf.Bytes()
+}
+
+func (je patchEvent) time() (t time.Time) {
+	switch ts := je.Timestamp.(type) {
+	case time.Time:
+		t = ts
+	case int:
+		t = time.Unix(0, int64(ts))
+	}
+	return t
 }
 
 func (je patchEvent) InstanceID() core.InstanceID {
@@ -263,7 +277,7 @@ func (je patchEvent) Collection() string {
 }
 
 type patchEventJson struct {
-	Timestamp      int64         `json:"timestamp"`
+	Timestamp      interface{}   `json:"timestamp"`
 	ID             string        `json:"_id"`
 	CollectionName string        `json:"collection_name"`
 	Patch          operationJson `json:"patch"`
@@ -283,7 +297,7 @@ func (je patchEvent) Marshal() ([]byte, error) {
 		}
 	}
 	return json.Marshal(patchEventJson{
-		Timestamp:      je.Timestamp.UnixNano(),
+		Timestamp:      je.Timestamp,
 		ID:             string(je.ID),
 		CollectionName: je.CollectionName,
 		Patch: operationJson{
