@@ -9,8 +9,11 @@ import (
 	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/gogo/protobuf/proto"
 	grpc "google.golang.org/grpc"
+	codes "google.golang.org/grpc/codes"
+	status "google.golang.org/grpc/status"
 	io "io"
 	math "math"
+	math_bits "math/bits"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -22,7 +25,7 @@ var _ = math.Inf
 // is compatible with the proto package it is being compiled against.
 // A compilation error at this line likely means your copy of the
 // proto package needs to be updated.
-const _ = proto.GoGoProtoPackageIsVersion2 // please upgrade the proto package
+const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
 // Header holds a key and signature for a request.
 type Header struct {
@@ -46,7 +49,7 @@ func (m *Header) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 		return xxx_messageInfo_Header.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
-		n, err := m.MarshalTo(b)
+		n, err := m.MarshalToSizedBuffer(b)
 		if err != nil {
 			return nil, err
 		}
@@ -98,7 +101,7 @@ func (m *Log) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 		return xxx_messageInfo_Log.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
-		n, err := m.MarshalTo(b)
+		n, err := m.MarshalToSizedBuffer(b)
 		if err != nil {
 			return nil, err
 		}
@@ -143,7 +146,7 @@ func (m *Log_Record) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 		return xxx_messageInfo_Log_Record.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
-		n, err := m.MarshalTo(b)
+		n, err := m.MarshalToSizedBuffer(b)
 		if err != nil {
 			return nil, err
 		}
@@ -212,7 +215,7 @@ func (m *GetLogsRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, erro
 		return xxx_messageInfo_GetLogsRequest.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
-		n, err := m.MarshalTo(b)
+		n, err := m.MarshalToSizedBuffer(b)
 		if err != nil {
 			return nil, err
 		}
@@ -266,7 +269,7 @@ func (m *GetLogsRequest_Body) XXX_Marshal(b []byte, deterministic bool) ([]byte,
 		return xxx_messageInfo_GetLogsRequest_Body.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
-		n, err := m.MarshalTo(b)
+		n, err := m.MarshalToSizedBuffer(b)
 		if err != nil {
 			return nil, err
 		}
@@ -305,7 +308,7 @@ func (m *GetLogsReply) XXX_Marshal(b []byte, deterministic bool) ([]byte, error)
 		return xxx_messageInfo_GetLogsReply.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
-		n, err := m.MarshalTo(b)
+		n, err := m.MarshalToSizedBuffer(b)
 		if err != nil {
 			return nil, err
 		}
@@ -353,7 +356,7 @@ func (m *PushLogRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, erro
 		return xxx_messageInfo_PushLogRequest.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
-		n, err := m.MarshalTo(b)
+		n, err := m.MarshalToSizedBuffer(b)
 		if err != nil {
 			return nil, err
 		}
@@ -411,7 +414,7 @@ func (m *PushLogRequest_Body) XXX_Marshal(b []byte, deterministic bool) ([]byte,
 		return xxx_messageInfo_PushLogRequest_Body.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
-		n, err := m.MarshalTo(b)
+		n, err := m.MarshalToSizedBuffer(b)
 		if err != nil {
 			return nil, err
 		}
@@ -455,7 +458,7 @@ func (m *PushLogReply) XXX_Marshal(b []byte, deterministic bool) ([]byte, error)
 		return xxx_messageInfo_PushLogReply.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
-		n, err := m.MarshalTo(b)
+		n, err := m.MarshalToSizedBuffer(b)
 		if err != nil {
 			return nil, err
 		}
@@ -496,7 +499,7 @@ func (m *GetRecordsRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, e
 		return xxx_messageInfo_GetRecordsRequest.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
-		n, err := m.MarshalTo(b)
+		n, err := m.MarshalToSizedBuffer(b)
 		if err != nil {
 			return nil, err
 		}
@@ -536,6 +539,8 @@ type GetRecordsRequest_Body struct {
 	ServiceKey *ProtoKey `protobuf:"bytes,2,opt,name=serviceKey,proto3,customtype=ProtoKey" json:"serviceKey,omitempty"`
 	// List of requested logs.
 	Logs []*GetRecordsRequest_Body_LogEntry `protobuf:"bytes,3,rep,name=logs,proto3" json:"logs,omitempty"`
+	// request all known logs, not only specified.
+	AllLogs bool `protobuf:"varint,4,opt,name=allLogs,proto3" json:"allLogs,omitempty"`
 }
 
 func (m *GetRecordsRequest_Body) Reset()         { *m = GetRecordsRequest_Body{} }
@@ -552,7 +557,7 @@ func (m *GetRecordsRequest_Body) XXX_Marshal(b []byte, deterministic bool) ([]by
 		return xxx_messageInfo_GetRecordsRequest_Body.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
-		n, err := m.MarshalTo(b)
+		n, err := m.MarshalToSizedBuffer(b)
 		if err != nil {
 			return nil, err
 		}
@@ -576,6 +581,13 @@ func (m *GetRecordsRequest_Body) GetLogs() []*GetRecordsRequest_Body_LogEntry {
 		return m.Logs
 	}
 	return nil
+}
+
+func (m *GetRecordsRequest_Body) GetAllLogs() bool {
+	if m != nil {
+		return m.AllLogs
+	}
+	return false
 }
 
 // LogEntry represents a single log.
@@ -602,7 +614,7 @@ func (m *GetRecordsRequest_Body_LogEntry) XXX_Marshal(b []byte, deterministic bo
 		return xxx_messageInfo_GetRecordsRequest_Body_LogEntry.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
-		n, err := m.MarshalTo(b)
+		n, err := m.MarshalToSizedBuffer(b)
 		if err != nil {
 			return nil, err
 		}
@@ -648,7 +660,7 @@ func (m *GetRecordsReply) XXX_Marshal(b []byte, deterministic bool) ([]byte, err
 		return xxx_messageInfo_GetRecordsReply.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
-		n, err := m.MarshalTo(b)
+		n, err := m.MarshalToSizedBuffer(b)
 		if err != nil {
 			return nil, err
 		}
@@ -698,7 +710,7 @@ func (m *GetRecordsReply_LogEntry) XXX_Marshal(b []byte, deterministic bool) ([]
 		return xxx_messageInfo_GetRecordsReply_LogEntry.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
-		n, err := m.MarshalTo(b)
+		n, err := m.MarshalToSizedBuffer(b)
 		if err != nil {
 			return nil, err
 		}
@@ -753,7 +765,7 @@ func (m *PushRecordRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, e
 		return xxx_messageInfo_PushRecordRequest.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
-		n, err := m.MarshalTo(b)
+		n, err := m.MarshalToSizedBuffer(b)
 		if err != nil {
 			return nil, err
 		}
@@ -809,7 +821,7 @@ func (m *PushRecordRequest_Body) XXX_Marshal(b []byte, deterministic bool) ([]by
 		return xxx_messageInfo_PushRecordRequest_Body.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
-		n, err := m.MarshalTo(b)
+		n, err := m.MarshalToSizedBuffer(b)
 		if err != nil {
 			return nil, err
 		}
@@ -853,7 +865,7 @@ func (m *PushRecordReply) XXX_Marshal(b []byte, deterministic bool) ([]byte, err
 		return xxx_messageInfo_PushRecordReply.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
-		n, err := m.MarshalTo(b)
+		n, err := m.MarshalToSizedBuffer(b)
 		if err != nil {
 			return nil, err
 		}
@@ -895,55 +907,56 @@ func init() {
 func init() { proto.RegisterFile("net.proto", fileDescriptor_a5b10ce944527a32) }
 
 var fileDescriptor_a5b10ce944527a32 = []byte{
-	// 760 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xbc, 0x56, 0xcd, 0x6e, 0xd3, 0x4c,
-	0x14, 0x8d, 0xed, 0xc4, 0x4d, 0x6f, 0xd2, 0x54, 0x19, 0x55, 0xdf, 0x17, 0x0c, 0x38, 0x91, 0x81,
-	0xb6, 0x42, 0x6d, 0x22, 0x05, 0x36, 0x88, 0x15, 0xa1, 0xa8, 0x54, 0x54, 0x50, 0x0d, 0xbc, 0x40,
-	0x12, 0x4f, 0x9d, 0x48, 0x6e, 0x26, 0xd8, 0x4e, 0x25, 0x6f, 0x90, 0x60, 0x03, 0x3b, 0x58, 0xb1,
-	0xe1, 0x0d, 0x78, 0x0a, 0x76, 0xb0, 0x42, 0x5d, 0xa2, 0x2c, 0x22, 0x48, 0x5f, 0x02, 0xb1, 0x42,
-	0x33, 0xe3, 0xf8, 0xa7, 0xf9, 0x91, 0x8a, 0xaa, 0xee, 0x3c, 0xf7, 0xdc, 0x7b, 0xe7, 0xcc, 0xb9,
-	0x67, 0x46, 0x86, 0xe5, 0x1e, 0xf1, 0xaa, 0x7d, 0x87, 0x7a, 0x14, 0xa9, 0xfc, 0xb3, 0xa5, 0x6d,
-	0x5b, 0x5d, 0xaf, 0x33, 0x68, 0x55, 0xdb, 0xf4, 0xa8, 0x66, 0x51, 0x8b, 0xd6, 0x38, 0xdc, 0x1a,
-	0x1c, 0xf2, 0x15, 0x5f, 0xf0, 0x2f, 0x51, 0x66, 0x3c, 0x03, 0xf5, 0x31, 0x69, 0x9a, 0xc4, 0x41,
-	0x1b, 0xa0, 0xf6, 0x07, 0xad, 0x27, 0xc4, 0x2f, 0x49, 0x15, 0x69, 0x33, 0xdf, 0x58, 0x1d, 0x8e,
-	0xca, 0xb9, 0x03, 0x96, 0x74, 0xc0, 0xc3, 0x38, 0x80, 0xd1, 0x35, 0x58, 0x76, 0xbb, 0x56, 0xaf,
-	0xe9, 0x0d, 0x1c, 0x52, 0x92, 0x59, 0x2e, 0x8e, 0x02, 0xc6, 0x27, 0x19, 0x94, 0x7d, 0x6a, 0xa1,
-	0x32, 0xc8, 0x7b, 0x3b, 0xd3, 0xad, 0x08, 0x71, 0xf6, 0x76, 0xb0, 0xbc, 0xb7, 0x13, 0xdb, 0x4f,
-	0x5e, 0xbc, 0xdf, 0x0d, 0xc8, 0x34, 0x4d, 0xd3, 0x71, 0x4b, 0x4a, 0x45, 0xd9, 0xcc, 0x37, 0x56,
-	0x86, 0xa3, 0xf2, 0x32, 0xcf, 0x7b, 0x60, 0x9a, 0x0e, 0x16, 0x18, 0xaa, 0x40, 0xba, 0x43, 0x9a,
-	0x66, 0x29, 0xcd, 0x7b, 0xe5, 0x87, 0xa3, 0x72, 0x96, 0xe7, 0x3c, 0xec, 0x9a, 0x98, 0x23, 0xda,
-	0x1b, 0x09, 0x54, 0x4c, 0xda, 0xd4, 0x31, 0x91, 0x0e, 0xe0, 0xf0, 0xaf, 0xa7, 0xd4, 0x24, 0x82,
-	0x23, 0x8e, 0x45, 0xd8, 0x09, 0xc9, 0x31, 0xe9, 0x79, 0x1c, 0x0e, 0x4e, 0x18, 0x06, 0x58, 0x75,
-	0x87, 0x4b, 0xc6, 0x61, 0x45, 0x54, 0x47, 0x11, 0xa4, 0x41, 0xb6, 0x45, 0x4d, 0x9f, 0xa3, 0x9c,
-	0x0e, 0x0e, 0xd7, 0xc6, 0x77, 0x09, 0x0a, 0xbb, 0xc4, 0xdb, 0xa7, 0x96, 0x8b, 0xc9, 0xcb, 0x01,
-	0x71, 0x3d, 0xb4, 0x0e, 0xaa, 0x28, 0xe6, 0x44, 0x72, 0xf5, 0x42, 0x55, 0x4c, 0xb2, 0x2a, 0xe6,
-	0x82, 0x03, 0x14, 0xd5, 0x20, 0xcd, 0xda, 0x70, 0x3e, 0xb9, 0xfa, 0xd5, 0x49, 0x56, 0xb2, 0x5b,
-	0xb5, 0x41, 0x4d, 0x1f, 0xf3, 0x44, 0xad, 0x0d, 0x69, 0xb6, 0x42, 0xdb, 0x90, 0xf5, 0x3a, 0x0e,
-	0x69, 0x9a, 0xe1, 0x3c, 0x8a, 0xc3, 0x51, 0x79, 0x85, 0xcb, 0xf3, 0x22, 0x00, 0x70, 0x98, 0x82,
-	0xb6, 0x00, 0x5c, 0xe2, 0x1c, 0x77, 0xdb, 0x24, 0x9a, 0x4d, 0xa4, 0x27, 0x1b, 0x4c, 0x0c, 0x37,
-	0x6a, 0x90, 0x0f, 0x19, 0xf4, 0x6d, 0x1f, 0x95, 0x21, 0x6d, 0x53, 0xcb, 0x2d, 0x49, 0x15, 0x65,
-	0x33, 0x57, 0xcf, 0x4d, 0x58, 0xee, 0x53, 0x0b, 0x73, 0xc0, 0xf8, 0x28, 0x43, 0xe1, 0x60, 0xe0,
-	0x76, 0x58, 0xe4, 0x62, 0x14, 0x48, 0x76, 0x8b, 0x2b, 0xf0, 0x59, 0xba, 0x04, 0x09, 0xd0, 0x3a,
-	0x2c, 0xb1, 0x3a, 0x96, 0xaa, 0xcc, 0x48, 0x9d, 0x80, 0xe8, 0x3a, 0x28, 0x36, 0xb5, 0xb8, 0x25,
-	0xce, 0x28, 0xc3, 0xe2, 0x46, 0x01, 0xf2, 0xe1, 0x49, 0xfa, 0xb6, 0x6f, 0xbc, 0x56, 0xa0, 0xb8,
-	0x4b, 0x3c, 0x61, 0xd9, 0x73, 0xbb, 0xa5, 0x9e, 0xd0, 0x4a, 0x8f, 0xb9, 0x25, 0xd9, 0x30, 0x2e,
-	0xd7, 0x7b, 0xf9, 0x32, 0xe4, 0xba, 0x1f, 0x38, 0x44, 0xe1, 0x0e, 0xd9, 0x58, 0xcc, 0x8c, 0xc9,
-	0xf3, 0xa8, 0xe7, 0x39, 0xbe, 0x70, 0x8f, 0x76, 0x04, 0xd9, 0x49, 0x04, 0xdd, 0x82, 0x8c, 0x4d,
-	0xad, 0xf9, 0x8f, 0x8c, 0x40, 0xd1, 0x4d, 0x50, 0xe9, 0xe1, 0xa1, 0x4b, 0xbc, 0x29, 0x66, 0xec,
-	0x6d, 0x08, 0x30, 0xb4, 0x06, 0x19, 0xbb, 0x7b, 0xd4, 0xf5, 0xf8, 0x08, 0x33, 0x58, 0x2c, 0x8c,
-	0xaf, 0x12, 0xac, 0xc6, 0x89, 0x31, 0x87, 0xdf, 0x4d, 0x38, 0xbc, 0x32, 0x8b, 0x7f, 0xdf, 0x9e,
-	0x22, 0xfe, 0xea, 0xfc, 0xc4, 0xb7, 0x98, 0xaf, 0x78, 0xc7, 0x92, 0xcc, 0xf7, 0x42, 0x31, 0xcf,
-	0x54, 0xc5, 0x66, 0x78, 0x92, 0x32, 0x71, 0x97, 0x32, 0xc7, 0x5d, 0x7f, 0x24, 0x28, 0x32, 0x7b,
-	0x05, 0x65, 0x17, 0xe3, 0xa6, 0xa9, 0x86, 0x71, 0x37, 0xbd, 0xfb, 0xc7, 0xcb, 0x17, 0xaa, 0x23,
-	0x2f, 0x54, 0xe7, 0x36, 0xa8, 0xe2, 0xe8, 0xc1, 0x91, 0x67, 0x89, 0x13, 0x64, 0x18, 0x45, 0x58,
-	0x8d, 0x53, 0xed, 0xdb, 0x7e, 0xfd, 0xad, 0x0c, 0x4b, 0xcf, 0x85, 0x29, 0xd1, 0x3d, 0x58, 0x0a,
-	0xde, 0x30, 0xf4, 0xdf, 0xec, 0x67, 0x55, 0x5b, 0x9b, 0x8a, 0xb3, 0x2b, 0x9a, 0x62, 0xa5, 0xc1,
-	0xa5, 0x8d, 0x4a, 0x93, 0xef, 0x51, 0x54, 0x9a, 0xb8, 0xdd, 0x29, 0xd4, 0x00, 0x88, 0x3c, 0x83,
-	0xae, 0xcc, 0xbd, 0x07, 0xda, 0xff, 0x73, 0x2c, 0x26, 0x7a, 0x44, 0x07, 0x8b, 0x7a, 0x4c, 0xcd,
-	0x25, 0xea, 0x71, 0x46, 0x07, 0x23, 0xd5, 0xa8, 0xfc, 0xfe, 0xa5, 0x4b, 0x5f, 0xc6, 0xba, 0xf4,
-	0x6d, 0xac, 0x4b, 0x27, 0x63, 0x5d, 0xfa, 0x39, 0xd6, 0xa5, 0x0f, 0xa7, 0x7a, 0xea, 0xe4, 0x54,
-	0x4f, 0xfd, 0x38, 0xd5, 0x53, 0x2d, 0x95, 0xff, 0x2a, 0xdc, 0xf9, 0x1b, 0x00, 0x00, 0xff, 0xff,
-	0x7c, 0xcb, 0xbb, 0x8b, 0x6e, 0x08, 0x00, 0x00,
+	// 773 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xbc, 0x56, 0xcf, 0x6e, 0xd3, 0x4e,
+	0x10, 0x8e, 0xed, 0xc4, 0x49, 0x27, 0x69, 0xaa, 0xac, 0xaa, 0xdf, 0x2f, 0x18, 0x70, 0x22, 0x03,
+	0x6d, 0x85, 0xda, 0x44, 0x0a, 0x5c, 0x10, 0x27, 0x42, 0x51, 0xa9, 0xa8, 0xa0, 0x5a, 0x78, 0x81,
+	0x24, 0xde, 0x3a, 0x91, 0xdc, 0x6c, 0xb0, 0x9d, 0x4a, 0xb9, 0x70, 0xe0, 0x02, 0x47, 0x4e, 0x5c,
+	0xfa, 0x04, 0xf0, 0x14, 0xdc, 0xe0, 0x84, 0x7a, 0x44, 0x39, 0x44, 0x90, 0xbe, 0x04, 0xe2, 0x84,
+	0x76, 0xd7, 0x7f, 0x9b, 0xa4, 0x52, 0x51, 0xd5, 0x9b, 0x67, 0xbe, 0x99, 0xd9, 0x99, 0x6f, 0xbe,
+	0x5d, 0x19, 0x96, 0xfa, 0xc4, 0xab, 0x0d, 0x1c, 0xea, 0x51, 0xa4, 0xf2, 0xcf, 0xb6, 0xb6, 0x65,
+	0xf5, 0xbc, 0xee, 0xb0, 0x5d, 0xeb, 0xd0, 0xc3, 0xba, 0x45, 0x2d, 0x5a, 0xe7, 0x70, 0x7b, 0x78,
+	0xc0, 0x2d, 0x6e, 0xf0, 0x2f, 0x91, 0x66, 0xbc, 0x00, 0xf5, 0x29, 0x69, 0x99, 0xc4, 0x41, 0xeb,
+	0xa0, 0x0e, 0x86, 0xed, 0x67, 0x64, 0x54, 0x96, 0xaa, 0xd2, 0x46, 0xa1, 0xb9, 0x32, 0x9e, 0x54,
+	0xf2, 0xfb, 0x2c, 0x68, 0x9f, 0xbb, 0xb1, 0x0f, 0xa3, 0x1b, 0xb0, 0xe4, 0xf6, 0xac, 0x7e, 0xcb,
+	0x1b, 0x3a, 0xa4, 0x2c, 0xb3, 0x58, 0x1c, 0x39, 0x8c, 0x63, 0x19, 0x94, 0x3d, 0x6a, 0xa1, 0x0a,
+	0xc8, 0xbb, 0xdb, 0xb3, 0xa5, 0x08, 0x71, 0x76, 0xb7, 0xb1, 0xbc, 0xbb, 0x1d, 0x3b, 0x4f, 0x3e,
+	0xff, 0xbc, 0x5b, 0x90, 0x69, 0x99, 0xa6, 0xe3, 0x96, 0x95, 0xaa, 0xb2, 0x51, 0x68, 0x2e, 0x8f,
+	0x27, 0x95, 0x25, 0x1e, 0xf7, 0xc8, 0x34, 0x1d, 0x2c, 0x30, 0x54, 0x85, 0x74, 0x97, 0xb4, 0xcc,
+	0x72, 0x9a, 0xd7, 0x2a, 0x8c, 0x27, 0x95, 0x1c, 0x8f, 0x79, 0xdc, 0x33, 0x31, 0x47, 0xb4, 0xb7,
+	0x12, 0xa8, 0x98, 0x74, 0xa8, 0x63, 0x22, 0x1d, 0xc0, 0xe1, 0x5f, 0xcf, 0xa9, 0x49, 0x44, 0x8f,
+	0x38, 0xe6, 0x61, 0x13, 0x92, 0x23, 0xd2, 0xf7, 0x38, 0xec, 0x4f, 0x18, 0x3a, 0x58, 0x76, 0x97,
+	0x53, 0xc6, 0x61, 0x45, 0x64, 0x47, 0x1e, 0xa4, 0x41, 0xae, 0x4d, 0xcd, 0x11, 0x47, 0x79, 0x3b,
+	0x38, 0xb4, 0x8d, 0xef, 0x12, 0x14, 0x77, 0x88, 0xb7, 0x47, 0x2d, 0x17, 0x93, 0xd7, 0x43, 0xe2,
+	0x7a, 0x68, 0x0d, 0x54, 0x91, 0xcc, 0x1b, 0xc9, 0x37, 0x8a, 0x35, 0xb1, 0xc9, 0x9a, 0xd8, 0x0b,
+	0xf6, 0x51, 0x54, 0x87, 0x34, 0x2b, 0xc3, 0xfb, 0xc9, 0x37, 0xae, 0x07, 0x51, 0xc9, 0x6a, 0xb5,
+	0x26, 0x35, 0x47, 0x98, 0x07, 0x6a, 0x1d, 0x48, 0x33, 0x0b, 0x6d, 0x41, 0xce, 0xeb, 0x3a, 0xa4,
+	0x65, 0x86, 0xfb, 0x28, 0x8d, 0x27, 0x95, 0x65, 0x4e, 0xcf, 0x2b, 0x1f, 0xc0, 0x61, 0x08, 0xda,
+	0x04, 0x70, 0x89, 0x73, 0xd4, 0xeb, 0x90, 0x68, 0x37, 0x11, 0x9f, 0x6c, 0x31, 0x31, 0xdc, 0xa8,
+	0x43, 0x21, 0xec, 0x60, 0x60, 0x8f, 0x50, 0x05, 0xd2, 0x36, 0xb5, 0xdc, 0xb2, 0x54, 0x55, 0x36,
+	0xf2, 0x8d, 0x7c, 0xd0, 0xe5, 0x1e, 0xb5, 0x30, 0x07, 0x8c, 0x8f, 0x32, 0x14, 0xf7, 0x87, 0x6e,
+	0x97, 0x79, 0x2e, 0x87, 0x81, 0x64, 0xb5, 0x38, 0x03, 0x9f, 0xa5, 0x2b, 0xa0, 0x00, 0xad, 0x41,
+	0x96, 0xe5, 0xb1, 0x50, 0x65, 0x4e, 0x68, 0x00, 0xa2, 0x9b, 0xa0, 0xd8, 0xd4, 0xe2, 0x92, 0x38,
+	0xc3, 0x0c, 0xf3, 0x1b, 0x45, 0x28, 0x84, 0x93, 0x0c, 0xec, 0x91, 0x71, 0xac, 0x40, 0x69, 0x87,
+	0x78, 0x42, 0xb2, 0x17, 0x56, 0x4b, 0x23, 0xc1, 0x95, 0x1e, 0x53, 0x4b, 0xb2, 0x60, 0x9c, 0xae,
+	0x4f, 0xf2, 0x55, 0xd0, 0xf5, 0xd0, 0x57, 0x88, 0xc2, 0x15, 0xb2, 0x7e, 0x7e, 0x67, 0x8c, 0x9e,
+	0x27, 0x7d, 0xcf, 0x19, 0x09, 0xf5, 0xa0, 0x32, 0x64, 0x5b, 0xb6, 0xcd, 0xe4, 0xc6, 0x79, 0xcc,
+	0xe1, 0xc0, 0xd4, 0x0e, 0x21, 0x17, 0xc4, 0xa2, 0x3b, 0x90, 0xb1, 0xa9, 0xb5, 0xf8, 0xf9, 0x11,
+	0x28, 0xba, 0x0d, 0x2a, 0x3d, 0x38, 0x70, 0x89, 0x37, 0xd3, 0x33, 0x7b, 0x35, 0x7c, 0x0c, 0xad,
+	0x42, 0xc6, 0xee, 0x1d, 0xf6, 0x3c, 0xbe, 0xdc, 0x0c, 0x16, 0x86, 0xf1, 0x55, 0x82, 0x95, 0x78,
+	0xcb, 0x4c, 0xfb, 0xf7, 0x13, 0xda, 0xaf, 0xce, 0x9b, 0x6c, 0x60, 0x9f, 0x1d, 0x49, 0x7b, 0x73,
+	0xf1, 0xc6, 0x37, 0x99, 0xe2, 0x78, 0xc5, 0xb2, 0xcc, 0xcf, 0x42, 0x31, 0x35, 0xd5, 0xc4, 0x61,
+	0x38, 0x08, 0x09, 0x74, 0xa7, 0x2c, 0xd0, 0xdd, 0x1f, 0x09, 0x4a, 0x4c, 0x78, 0x7e, 0xda, 0xe5,
+	0xe8, 0x6c, 0xa6, 0x60, 0x5c, 0x67, 0xef, 0xff, 0xf1, 0x5a, 0x86, 0xec, 0xc8, 0xe7, 0xb2, 0x73,
+	0x17, 0x54, 0x31, 0xba, 0x3f, 0xf2, 0x3c, 0x72, 0xfc, 0x08, 0xa3, 0x04, 0x2b, 0xf1, 0x56, 0x07,
+	0xf6, 0xa8, 0xf1, 0x4e, 0x86, 0xec, 0x4b, 0x21, 0x57, 0xf4, 0x00, 0xb2, 0xfe, 0xeb, 0x86, 0xfe,
+	0x9b, 0xff, 0xe0, 0x6a, 0xab, 0x33, 0x7e, 0x76, 0x79, 0x53, 0x2c, 0xd5, 0xbf, 0xce, 0x51, 0x6a,
+	0xf2, 0xa5, 0x8a, 0x52, 0x13, 0xf7, 0x3e, 0x85, 0x9a, 0x00, 0x91, 0x66, 0xd0, 0xb5, 0x85, 0x37,
+	0x44, 0xfb, 0x7f, 0x81, 0xc4, 0x44, 0x8d, 0x68, 0xb0, 0xa8, 0xc6, 0xcc, 0x5e, 0xa2, 0x1a, 0x67,
+	0x78, 0x30, 0x52, 0xcd, 0xea, 0xef, 0x5f, 0xba, 0xf4, 0x65, 0xaa, 0x4b, 0xdf, 0xa6, 0xba, 0x74,
+	0x32, 0xd5, 0xa5, 0x9f, 0x53, 0x5d, 0xfa, 0x70, 0xaa, 0xa7, 0x4e, 0x4e, 0xf5, 0xd4, 0x8f, 0x53,
+	0x3d, 0xd5, 0x56, 0xf9, 0x4f, 0xc4, 0xbd, 0xbf, 0x01, 0x00, 0x00, 0xff, 0xff, 0xf4, 0x00, 0x5f,
+	0xfa, 0x88, 0x08, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -1022,6 +1035,23 @@ type ServiceServer interface {
 	GetRecords(context.Context, *GetRecordsRequest) (*GetRecordsReply, error)
 	// PushRecord to a peer.
 	PushRecord(context.Context, *PushRecordRequest) (*PushRecordReply, error)
+}
+
+// UnimplementedServiceServer can be embedded to have forward compatible implementations.
+type UnimplementedServiceServer struct {
+}
+
+func (*UnimplementedServiceServer) GetLogs(ctx context.Context, req *GetLogsRequest) (*GetLogsReply, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetLogs not implemented")
+}
+func (*UnimplementedServiceServer) PushLog(ctx context.Context, req *PushLogRequest) (*PushLogReply, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PushLog not implemented")
+}
+func (*UnimplementedServiceServer) GetRecords(ctx context.Context, req *GetRecordsRequest) (*GetRecordsReply, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetRecords not implemented")
+}
+func (*UnimplementedServiceServer) PushRecord(ctx context.Context, req *PushRecordRequest) (*PushRecordReply, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PushRecord not implemented")
 }
 
 func RegisterServiceServer(s *grpc.Server, srv ServiceServer) {
@@ -1128,7 +1158,7 @@ var _Service_serviceDesc = grpc.ServiceDesc{
 func (m *Header) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
-	n, err := m.MarshalTo(dAtA)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
 	if err != nil {
 		return nil, err
 	}
@@ -1136,33 +1166,41 @@ func (m *Header) Marshal() (dAtA []byte, err error) {
 }
 
 func (m *Header) MarshalTo(dAtA []byte) (int, error) {
-	var i int
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *Header) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
-	if m.PubKey != nil {
-		dAtA[i] = 0xa
-		i++
-		i = encodeVarintNet(dAtA, i, uint64(m.PubKey.Size()))
-		n1, err := m.PubKey.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
-		}
-		i += n1
-	}
 	if len(m.Signature) > 0 {
-		dAtA[i] = 0x12
-		i++
+		i -= len(m.Signature)
+		copy(dAtA[i:], m.Signature)
 		i = encodeVarintNet(dAtA, i, uint64(len(m.Signature)))
-		i += copy(dAtA[i:], m.Signature)
+		i--
+		dAtA[i] = 0x12
 	}
-	return i, nil
+	if m.PubKey != nil {
+		{
+			size := m.PubKey.Size()
+			i -= size
+			if _, err := m.PubKey.MarshalTo(dAtA[i:]); err != nil {
+				return 0, err
+			}
+			i = encodeVarintNet(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
 }
 
 func (m *Log) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
-	n, err := m.MarshalTo(dAtA)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
 	if err != nil {
 		return nil, err
 	}
@@ -1170,59 +1208,72 @@ func (m *Log) Marshal() (dAtA []byte, err error) {
 }
 
 func (m *Log) MarshalTo(dAtA []byte) (int, error) {
-	var i int
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *Log) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
-	if m.ID != nil {
-		dAtA[i] = 0xa
-		i++
-		i = encodeVarintNet(dAtA, i, uint64(m.ID.Size()))
-		n2, err := m.ID.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
-		}
-		i += n2
-	}
-	if m.PubKey != nil {
-		dAtA[i] = 0x12
-		i++
-		i = encodeVarintNet(dAtA, i, uint64(m.PubKey.Size()))
-		n3, err := m.PubKey.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
-		}
-		i += n3
-	}
-	if len(m.Addrs) > 0 {
-		for _, msg := range m.Addrs {
-			dAtA[i] = 0x1a
-			i++
-			i = encodeVarintNet(dAtA, i, uint64(msg.Size()))
-			n, err := msg.MarshalTo(dAtA[i:])
-			if err != nil {
+	if m.Head != nil {
+		{
+			size := m.Head.Size()
+			i -= size
+			if _, err := m.Head.MarshalTo(dAtA[i:]); err != nil {
 				return 0, err
 			}
-			i += n
+			i = encodeVarintNet(dAtA, i, uint64(size))
 		}
-	}
-	if m.Head != nil {
+		i--
 		dAtA[i] = 0x22
-		i++
-		i = encodeVarintNet(dAtA, i, uint64(m.Head.Size()))
-		n4, err := m.Head.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
-		}
-		i += n4
 	}
-	return i, nil
+	if len(m.Addrs) > 0 {
+		for iNdEx := len(m.Addrs) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size := m.Addrs[iNdEx].Size()
+				i -= size
+				if _, err := m.Addrs[iNdEx].MarshalTo(dAtA[i:]); err != nil {
+					return 0, err
+				}
+				i = encodeVarintNet(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x1a
+		}
+	}
+	if m.PubKey != nil {
+		{
+			size := m.PubKey.Size()
+			i -= size
+			if _, err := m.PubKey.MarshalTo(dAtA[i:]); err != nil {
+				return 0, err
+			}
+			i = encodeVarintNet(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x12
+	}
+	if m.ID != nil {
+		{
+			size := m.ID.Size()
+			i -= size
+			if _, err := m.ID.MarshalTo(dAtA[i:]); err != nil {
+				return 0, err
+			}
+			i = encodeVarintNet(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
 }
 
 func (m *Log_Record) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
-	n, err := m.MarshalTo(dAtA)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
 	if err != nil {
 		return nil, err
 	}
@@ -1230,41 +1281,50 @@ func (m *Log_Record) Marshal() (dAtA []byte, err error) {
 }
 
 func (m *Log_Record) MarshalTo(dAtA []byte) (int, error) {
-	var i int
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *Log_Record) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
-	if len(m.RecordNode) > 0 {
-		dAtA[i] = 0xa
-		i++
-		i = encodeVarintNet(dAtA, i, uint64(len(m.RecordNode)))
-		i += copy(dAtA[i:], m.RecordNode)
-	}
-	if len(m.EventNode) > 0 {
-		dAtA[i] = 0x12
-		i++
-		i = encodeVarintNet(dAtA, i, uint64(len(m.EventNode)))
-		i += copy(dAtA[i:], m.EventNode)
+	if len(m.BodyNode) > 0 {
+		i -= len(m.BodyNode)
+		copy(dAtA[i:], m.BodyNode)
+		i = encodeVarintNet(dAtA, i, uint64(len(m.BodyNode)))
+		i--
+		dAtA[i] = 0x22
 	}
 	if len(m.HeaderNode) > 0 {
-		dAtA[i] = 0x1a
-		i++
+		i -= len(m.HeaderNode)
+		copy(dAtA[i:], m.HeaderNode)
 		i = encodeVarintNet(dAtA, i, uint64(len(m.HeaderNode)))
-		i += copy(dAtA[i:], m.HeaderNode)
+		i--
+		dAtA[i] = 0x1a
 	}
-	if len(m.BodyNode) > 0 {
-		dAtA[i] = 0x22
-		i++
-		i = encodeVarintNet(dAtA, i, uint64(len(m.BodyNode)))
-		i += copy(dAtA[i:], m.BodyNode)
+	if len(m.EventNode) > 0 {
+		i -= len(m.EventNode)
+		copy(dAtA[i:], m.EventNode)
+		i = encodeVarintNet(dAtA, i, uint64(len(m.EventNode)))
+		i--
+		dAtA[i] = 0x12
 	}
-	return i, nil
+	if len(m.RecordNode) > 0 {
+		i -= len(m.RecordNode)
+		copy(dAtA[i:], m.RecordNode)
+		i = encodeVarintNet(dAtA, i, uint64(len(m.RecordNode)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
 }
 
 func (m *GetLogsRequest) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
-	n, err := m.MarshalTo(dAtA)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
 	if err != nil {
 		return nil, err
 	}
@@ -1272,37 +1332,46 @@ func (m *GetLogsRequest) Marshal() (dAtA []byte, err error) {
 }
 
 func (m *GetLogsRequest) MarshalTo(dAtA []byte) (int, error) {
-	var i int
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *GetLogsRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
-	if m.Header != nil {
-		dAtA[i] = 0xa
-		i++
-		i = encodeVarintNet(dAtA, i, uint64(m.Header.Size()))
-		n5, err := m.Header.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
-		}
-		i += n5
-	}
 	if m.Body != nil {
-		dAtA[i] = 0x12
-		i++
-		i = encodeVarintNet(dAtA, i, uint64(m.Body.Size()))
-		n6, err := m.Body.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
+		{
+			size, err := m.Body.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintNet(dAtA, i, uint64(size))
 		}
-		i += n6
+		i--
+		dAtA[i] = 0x12
 	}
-	return i, nil
+	if m.Header != nil {
+		{
+			size, err := m.Header.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintNet(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
 }
 
 func (m *GetLogsRequest_Body) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
-	n, err := m.MarshalTo(dAtA)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
 	if err != nil {
 		return nil, err
 	}
@@ -1310,37 +1379,46 @@ func (m *GetLogsRequest_Body) Marshal() (dAtA []byte, err error) {
 }
 
 func (m *GetLogsRequest_Body) MarshalTo(dAtA []byte) (int, error) {
-	var i int
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *GetLogsRequest_Body) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
-	if m.ThreadID != nil {
-		dAtA[i] = 0xa
-		i++
-		i = encodeVarintNet(dAtA, i, uint64(m.ThreadID.Size()))
-		n7, err := m.ThreadID.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
-		}
-		i += n7
-	}
 	if m.ServiceKey != nil {
-		dAtA[i] = 0x12
-		i++
-		i = encodeVarintNet(dAtA, i, uint64(m.ServiceKey.Size()))
-		n8, err := m.ServiceKey.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
+		{
+			size := m.ServiceKey.Size()
+			i -= size
+			if _, err := m.ServiceKey.MarshalTo(dAtA[i:]); err != nil {
+				return 0, err
+			}
+			i = encodeVarintNet(dAtA, i, uint64(size))
 		}
-		i += n8
+		i--
+		dAtA[i] = 0x12
 	}
-	return i, nil
+	if m.ThreadID != nil {
+		{
+			size := m.ThreadID.Size()
+			i -= size
+			if _, err := m.ThreadID.MarshalTo(dAtA[i:]); err != nil {
+				return 0, err
+			}
+			i = encodeVarintNet(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
 }
 
 func (m *GetLogsReply) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
-	n, err := m.MarshalTo(dAtA)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
 	if err != nil {
 		return nil, err
 	}
@@ -1348,29 +1426,36 @@ func (m *GetLogsReply) Marshal() (dAtA []byte, err error) {
 }
 
 func (m *GetLogsReply) MarshalTo(dAtA []byte) (int, error) {
-	var i int
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *GetLogsReply) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
 	if len(m.Logs) > 0 {
-		for _, msg := range m.Logs {
-			dAtA[i] = 0xa
-			i++
-			i = encodeVarintNet(dAtA, i, uint64(msg.Size()))
-			n, err := msg.MarshalTo(dAtA[i:])
-			if err != nil {
-				return 0, err
+		for iNdEx := len(m.Logs) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Logs[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintNet(dAtA, i, uint64(size))
 			}
-			i += n
+			i--
+			dAtA[i] = 0xa
 		}
 	}
-	return i, nil
+	return len(dAtA) - i, nil
 }
 
 func (m *PushLogRequest) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
-	n, err := m.MarshalTo(dAtA)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
 	if err != nil {
 		return nil, err
 	}
@@ -1378,37 +1463,46 @@ func (m *PushLogRequest) Marshal() (dAtA []byte, err error) {
 }
 
 func (m *PushLogRequest) MarshalTo(dAtA []byte) (int, error) {
-	var i int
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *PushLogRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
-	if m.Header != nil {
-		dAtA[i] = 0xa
-		i++
-		i = encodeVarintNet(dAtA, i, uint64(m.Header.Size()))
-		n9, err := m.Header.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
-		}
-		i += n9
-	}
 	if m.Body != nil {
-		dAtA[i] = 0x12
-		i++
-		i = encodeVarintNet(dAtA, i, uint64(m.Body.Size()))
-		n10, err := m.Body.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
+		{
+			size, err := m.Body.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintNet(dAtA, i, uint64(size))
 		}
-		i += n10
+		i--
+		dAtA[i] = 0x12
 	}
-	return i, nil
+	if m.Header != nil {
+		{
+			size, err := m.Header.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintNet(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
 }
 
 func (m *PushLogRequest_Body) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
-	n, err := m.MarshalTo(dAtA)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
 	if err != nil {
 		return nil, err
 	}
@@ -1416,57 +1510,70 @@ func (m *PushLogRequest_Body) Marshal() (dAtA []byte, err error) {
 }
 
 func (m *PushLogRequest_Body) MarshalTo(dAtA []byte) (int, error) {
-	var i int
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *PushLogRequest_Body) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
-	if m.ThreadID != nil {
-		dAtA[i] = 0xa
-		i++
-		i = encodeVarintNet(dAtA, i, uint64(m.ThreadID.Size()))
-		n11, err := m.ThreadID.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
+	if m.Log != nil {
+		{
+			size, err := m.Log.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintNet(dAtA, i, uint64(size))
 		}
-		i += n11
-	}
-	if m.ServiceKey != nil {
-		dAtA[i] = 0x12
-		i++
-		i = encodeVarintNet(dAtA, i, uint64(m.ServiceKey.Size()))
-		n12, err := m.ServiceKey.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
-		}
-		i += n12
+		i--
+		dAtA[i] = 0x22
 	}
 	if m.ReadKey != nil {
+		{
+			size := m.ReadKey.Size()
+			i -= size
+			if _, err := m.ReadKey.MarshalTo(dAtA[i:]); err != nil {
+				return 0, err
+			}
+			i = encodeVarintNet(dAtA, i, uint64(size))
+		}
+		i--
 		dAtA[i] = 0x1a
-		i++
-		i = encodeVarintNet(dAtA, i, uint64(m.ReadKey.Size()))
-		n13, err := m.ReadKey.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
-		}
-		i += n13
 	}
-	if m.Log != nil {
-		dAtA[i] = 0x22
-		i++
-		i = encodeVarintNet(dAtA, i, uint64(m.Log.Size()))
-		n14, err := m.Log.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
+	if m.ServiceKey != nil {
+		{
+			size := m.ServiceKey.Size()
+			i -= size
+			if _, err := m.ServiceKey.MarshalTo(dAtA[i:]); err != nil {
+				return 0, err
+			}
+			i = encodeVarintNet(dAtA, i, uint64(size))
 		}
-		i += n14
+		i--
+		dAtA[i] = 0x12
 	}
-	return i, nil
+	if m.ThreadID != nil {
+		{
+			size := m.ThreadID.Size()
+			i -= size
+			if _, err := m.ThreadID.MarshalTo(dAtA[i:]); err != nil {
+				return 0, err
+			}
+			i = encodeVarintNet(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
 }
 
 func (m *PushLogReply) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
-	n, err := m.MarshalTo(dAtA)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
 	if err != nil {
 		return nil, err
 	}
@@ -1474,17 +1581,22 @@ func (m *PushLogReply) Marshal() (dAtA []byte, err error) {
 }
 
 func (m *PushLogReply) MarshalTo(dAtA []byte) (int, error) {
-	var i int
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *PushLogReply) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
-	return i, nil
+	return len(dAtA) - i, nil
 }
 
 func (m *GetRecordsRequest) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
-	n, err := m.MarshalTo(dAtA)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
 	if err != nil {
 		return nil, err
 	}
@@ -1492,37 +1604,46 @@ func (m *GetRecordsRequest) Marshal() (dAtA []byte, err error) {
 }
 
 func (m *GetRecordsRequest) MarshalTo(dAtA []byte) (int, error) {
-	var i int
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *GetRecordsRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
-	if m.Header != nil {
-		dAtA[i] = 0xa
-		i++
-		i = encodeVarintNet(dAtA, i, uint64(m.Header.Size()))
-		n15, err := m.Header.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
-		}
-		i += n15
-	}
 	if m.Body != nil {
-		dAtA[i] = 0x12
-		i++
-		i = encodeVarintNet(dAtA, i, uint64(m.Body.Size()))
-		n16, err := m.Body.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
+		{
+			size, err := m.Body.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintNet(dAtA, i, uint64(size))
 		}
-		i += n16
+		i--
+		dAtA[i] = 0x12
 	}
-	return i, nil
+	if m.Header != nil {
+		{
+			size, err := m.Header.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintNet(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
 }
 
 func (m *GetRecordsRequest_Body) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
-	n, err := m.MarshalTo(dAtA)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
 	if err != nil {
 		return nil, err
 	}
@@ -1530,49 +1651,70 @@ func (m *GetRecordsRequest_Body) Marshal() (dAtA []byte, err error) {
 }
 
 func (m *GetRecordsRequest_Body) MarshalTo(dAtA []byte) (int, error) {
-	var i int
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *GetRecordsRequest_Body) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
-	if m.ThreadID != nil {
-		dAtA[i] = 0xa
-		i++
-		i = encodeVarintNet(dAtA, i, uint64(m.ThreadID.Size()))
-		n17, err := m.ThreadID.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
+	if m.AllLogs {
+		i--
+		if m.AllLogs {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
 		}
-		i += n17
-	}
-	if m.ServiceKey != nil {
-		dAtA[i] = 0x12
-		i++
-		i = encodeVarintNet(dAtA, i, uint64(m.ServiceKey.Size()))
-		n18, err := m.ServiceKey.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
-		}
-		i += n18
+		i--
+		dAtA[i] = 0x20
 	}
 	if len(m.Logs) > 0 {
-		for _, msg := range m.Logs {
-			dAtA[i] = 0x1a
-			i++
-			i = encodeVarintNet(dAtA, i, uint64(msg.Size()))
-			n, err := msg.MarshalTo(dAtA[i:])
-			if err != nil {
-				return 0, err
+		for iNdEx := len(m.Logs) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Logs[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintNet(dAtA, i, uint64(size))
 			}
-			i += n
+			i--
+			dAtA[i] = 0x1a
 		}
 	}
-	return i, nil
+	if m.ServiceKey != nil {
+		{
+			size := m.ServiceKey.Size()
+			i -= size
+			if _, err := m.ServiceKey.MarshalTo(dAtA[i:]); err != nil {
+				return 0, err
+			}
+			i = encodeVarintNet(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x12
+	}
+	if m.ThreadID != nil {
+		{
+			size := m.ThreadID.Size()
+			i -= size
+			if _, err := m.ThreadID.MarshalTo(dAtA[i:]); err != nil {
+				return 0, err
+			}
+			i = encodeVarintNet(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
 }
 
 func (m *GetRecordsRequest_Body_LogEntry) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
-	n, err := m.MarshalTo(dAtA)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
 	if err != nil {
 		return nil, err
 	}
@@ -1580,42 +1722,51 @@ func (m *GetRecordsRequest_Body_LogEntry) Marshal() (dAtA []byte, err error) {
 }
 
 func (m *GetRecordsRequest_Body_LogEntry) MarshalTo(dAtA []byte) (int, error) {
-	var i int
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *GetRecordsRequest_Body_LogEntry) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
-	if m.LogID != nil {
-		dAtA[i] = 0xa
-		i++
-		i = encodeVarintNet(dAtA, i, uint64(m.LogID.Size()))
-		n19, err := m.LogID.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
-		}
-		i += n19
+	if m.Limit != 0 {
+		i = encodeVarintNet(dAtA, i, uint64(m.Limit))
+		i--
+		dAtA[i] = 0x18
 	}
 	if m.Offset != nil {
-		dAtA[i] = 0x12
-		i++
-		i = encodeVarintNet(dAtA, i, uint64(m.Offset.Size()))
-		n20, err := m.Offset.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
+		{
+			size := m.Offset.Size()
+			i -= size
+			if _, err := m.Offset.MarshalTo(dAtA[i:]); err != nil {
+				return 0, err
+			}
+			i = encodeVarintNet(dAtA, i, uint64(size))
 		}
-		i += n20
+		i--
+		dAtA[i] = 0x12
 	}
-	if m.Limit != 0 {
-		dAtA[i] = 0x18
-		i++
-		i = encodeVarintNet(dAtA, i, uint64(m.Limit))
+	if m.LogID != nil {
+		{
+			size := m.LogID.Size()
+			i -= size
+			if _, err := m.LogID.MarshalTo(dAtA[i:]); err != nil {
+				return 0, err
+			}
+			i = encodeVarintNet(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0xa
 	}
-	return i, nil
+	return len(dAtA) - i, nil
 }
 
 func (m *GetRecordsReply) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
-	n, err := m.MarshalTo(dAtA)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
 	if err != nil {
 		return nil, err
 	}
@@ -1623,29 +1774,36 @@ func (m *GetRecordsReply) Marshal() (dAtA []byte, err error) {
 }
 
 func (m *GetRecordsReply) MarshalTo(dAtA []byte) (int, error) {
-	var i int
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *GetRecordsReply) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
 	if len(m.Logs) > 0 {
-		for _, msg := range m.Logs {
-			dAtA[i] = 0xa
-			i++
-			i = encodeVarintNet(dAtA, i, uint64(msg.Size()))
-			n, err := msg.MarshalTo(dAtA[i:])
-			if err != nil {
-				return 0, err
+		for iNdEx := len(m.Logs) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Logs[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintNet(dAtA, i, uint64(size))
 			}
-			i += n
+			i--
+			dAtA[i] = 0xa
 		}
 	}
-	return i, nil
+	return len(dAtA) - i, nil
 }
 
 func (m *GetRecordsReply_LogEntry) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
-	n, err := m.MarshalTo(dAtA)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
 	if err != nil {
 		return nil, err
 	}
@@ -1653,49 +1811,60 @@ func (m *GetRecordsReply_LogEntry) Marshal() (dAtA []byte, err error) {
 }
 
 func (m *GetRecordsReply_LogEntry) MarshalTo(dAtA []byte) (int, error) {
-	var i int
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *GetRecordsReply_LogEntry) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
-	if m.LogID != nil {
-		dAtA[i] = 0xa
-		i++
-		i = encodeVarintNet(dAtA, i, uint64(m.LogID.Size()))
-		n21, err := m.LogID.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
-		}
-		i += n21
-	}
-	if len(m.Records) > 0 {
-		for _, msg := range m.Records {
-			dAtA[i] = 0x12
-			i++
-			i = encodeVarintNet(dAtA, i, uint64(msg.Size()))
-			n, err := msg.MarshalTo(dAtA[i:])
+	if m.Log != nil {
+		{
+			size, err := m.Log.MarshalToSizedBuffer(dAtA[:i])
 			if err != nil {
 				return 0, err
 			}
-			i += n
+			i -= size
+			i = encodeVarintNet(dAtA, i, uint64(size))
 		}
-	}
-	if m.Log != nil {
+		i--
 		dAtA[i] = 0x1a
-		i++
-		i = encodeVarintNet(dAtA, i, uint64(m.Log.Size()))
-		n22, err := m.Log.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
-		}
-		i += n22
 	}
-	return i, nil
+	if len(m.Records) > 0 {
+		for iNdEx := len(m.Records) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Records[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintNet(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x12
+		}
+	}
+	if m.LogID != nil {
+		{
+			size := m.LogID.Size()
+			i -= size
+			if _, err := m.LogID.MarshalTo(dAtA[i:]); err != nil {
+				return 0, err
+			}
+			i = encodeVarintNet(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
 }
 
 func (m *PushRecordRequest) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
-	n, err := m.MarshalTo(dAtA)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
 	if err != nil {
 		return nil, err
 	}
@@ -1703,37 +1872,46 @@ func (m *PushRecordRequest) Marshal() (dAtA []byte, err error) {
 }
 
 func (m *PushRecordRequest) MarshalTo(dAtA []byte) (int, error) {
-	var i int
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *PushRecordRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
-	if m.Header != nil {
-		dAtA[i] = 0xa
-		i++
-		i = encodeVarintNet(dAtA, i, uint64(m.Header.Size()))
-		n23, err := m.Header.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
-		}
-		i += n23
-	}
 	if m.Body != nil {
-		dAtA[i] = 0x12
-		i++
-		i = encodeVarintNet(dAtA, i, uint64(m.Body.Size()))
-		n24, err := m.Body.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
+		{
+			size, err := m.Body.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintNet(dAtA, i, uint64(size))
 		}
-		i += n24
+		i--
+		dAtA[i] = 0x12
 	}
-	return i, nil
+	if m.Header != nil {
+		{
+			size, err := m.Header.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintNet(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
 }
 
 func (m *PushRecordRequest_Body) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
-	n, err := m.MarshalTo(dAtA)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
 	if err != nil {
 		return nil, err
 	}
@@ -1741,47 +1919,58 @@ func (m *PushRecordRequest_Body) Marshal() (dAtA []byte, err error) {
 }
 
 func (m *PushRecordRequest_Body) MarshalTo(dAtA []byte) (int, error) {
-	var i int
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *PushRecordRequest_Body) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
-	if m.ThreadID != nil {
-		dAtA[i] = 0xa
-		i++
-		i = encodeVarintNet(dAtA, i, uint64(m.ThreadID.Size()))
-		n25, err := m.ThreadID.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
+	if m.Record != nil {
+		{
+			size, err := m.Record.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintNet(dAtA, i, uint64(size))
 		}
-		i += n25
+		i--
+		dAtA[i] = 0x1a
 	}
 	if m.LogID != nil {
+		{
+			size := m.LogID.Size()
+			i -= size
+			if _, err := m.LogID.MarshalTo(dAtA[i:]); err != nil {
+				return 0, err
+			}
+			i = encodeVarintNet(dAtA, i, uint64(size))
+		}
+		i--
 		dAtA[i] = 0x12
-		i++
-		i = encodeVarintNet(dAtA, i, uint64(m.LogID.Size()))
-		n26, err := m.LogID.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
-		}
-		i += n26
 	}
-	if m.Record != nil {
-		dAtA[i] = 0x1a
-		i++
-		i = encodeVarintNet(dAtA, i, uint64(m.Record.Size()))
-		n27, err := m.Record.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
+	if m.ThreadID != nil {
+		{
+			size := m.ThreadID.Size()
+			i -= size
+			if _, err := m.ThreadID.MarshalTo(dAtA[i:]); err != nil {
+				return 0, err
+			}
+			i = encodeVarintNet(dAtA, i, uint64(size))
 		}
-		i += n27
+		i--
+		dAtA[i] = 0xa
 	}
-	return i, nil
+	return len(dAtA) - i, nil
 }
 
 func (m *PushRecordReply) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
-	n, err := m.MarshalTo(dAtA)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
 	if err != nil {
 		return nil, err
 	}
@@ -1789,21 +1978,28 @@ func (m *PushRecordReply) Marshal() (dAtA []byte, err error) {
 }
 
 func (m *PushRecordReply) MarshalTo(dAtA []byte) (int, error) {
-	var i int
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *PushRecordReply) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
-	return i, nil
+	return len(dAtA) - i, nil
 }
 
 func encodeVarintNet(dAtA []byte, offset int, v uint64) int {
+	offset -= sovNet(v)
+	base := offset
 	for v >= 1<<7 {
 		dAtA[offset] = uint8(v&0x7f | 0x80)
 		v >>= 7
 		offset++
 	}
 	dAtA[offset] = uint8(v)
-	return offset + 1
+	return base
 }
 func NewPopulatedHeader(r randyNet, easy bool) *Header {
 	this := &Header{}
@@ -1863,10 +2059,10 @@ func NewPopulatedLog_Record(r randyNet, easy bool) *Log_Record {
 
 func NewPopulatedGetLogsRequest(r randyNet, easy bool) *GetLogsRequest {
 	this := &GetLogsRequest{}
-	if r.Intn(10) != 0 {
+	if r.Intn(5) != 0 {
 		this.Header = NewPopulatedHeader(r, easy)
 	}
-	if r.Intn(10) != 0 {
+	if r.Intn(5) != 0 {
 		this.Body = NewPopulatedGetLogsRequest_Body(r, easy)
 	}
 	if !easy && r.Intn(10) != 0 {
@@ -1885,7 +2081,7 @@ func NewPopulatedGetLogsRequest_Body(r randyNet, easy bool) *GetLogsRequest_Body
 
 func NewPopulatedGetLogsReply(r randyNet, easy bool) *GetLogsReply {
 	this := &GetLogsReply{}
-	if r.Intn(10) != 0 {
+	if r.Intn(5) != 0 {
 		v8 := r.Intn(5)
 		this.Logs = make([]*Log, v8)
 		for i := 0; i < v8; i++ {
@@ -1899,10 +2095,10 @@ func NewPopulatedGetLogsReply(r randyNet, easy bool) *GetLogsReply {
 
 func NewPopulatedPushLogRequest(r randyNet, easy bool) *PushLogRequest {
 	this := &PushLogRequest{}
-	if r.Intn(10) != 0 {
+	if r.Intn(5) != 0 {
 		this.Header = NewPopulatedHeader(r, easy)
 	}
-	if r.Intn(10) != 0 {
+	if r.Intn(5) != 0 {
 		this.Body = NewPopulatedPushLogRequest_Body(r, easy)
 	}
 	if !easy && r.Intn(10) != 0 {
@@ -1915,7 +2111,7 @@ func NewPopulatedPushLogRequest_Body(r randyNet, easy bool) *PushLogRequest_Body
 	this.ThreadID = NewPopulatedProtoThreadID(r)
 	this.ServiceKey = NewPopulatedProtoKey(r)
 	this.ReadKey = NewPopulatedProtoKey(r)
-	if r.Intn(10) != 0 {
+	if r.Intn(5) != 0 {
 		this.Log = NewPopulatedLog(r, easy)
 	}
 	if !easy && r.Intn(10) != 0 {
@@ -1932,10 +2128,10 @@ func NewPopulatedPushLogReply(r randyNet, easy bool) *PushLogReply {
 
 func NewPopulatedGetRecordsRequest(r randyNet, easy bool) *GetRecordsRequest {
 	this := &GetRecordsRequest{}
-	if r.Intn(10) != 0 {
+	if r.Intn(5) != 0 {
 		this.Header = NewPopulatedHeader(r, easy)
 	}
-	if r.Intn(10) != 0 {
+	if r.Intn(5) != 0 {
 		this.Body = NewPopulatedGetRecordsRequest_Body(r, easy)
 	}
 	if !easy && r.Intn(10) != 0 {
@@ -1947,13 +2143,14 @@ func NewPopulatedGetRecordsRequest_Body(r randyNet, easy bool) *GetRecordsReques
 	this := &GetRecordsRequest_Body{}
 	this.ThreadID = NewPopulatedProtoThreadID(r)
 	this.ServiceKey = NewPopulatedProtoKey(r)
-	if r.Intn(10) != 0 {
+	if r.Intn(5) != 0 {
 		v9 := r.Intn(5)
 		this.Logs = make([]*GetRecordsRequest_Body_LogEntry, v9)
 		for i := 0; i < v9; i++ {
 			this.Logs[i] = NewPopulatedGetRecordsRequest_Body_LogEntry(r, easy)
 		}
 	}
+	this.AllLogs = bool(bool(r.Intn(2) == 0))
 	if !easy && r.Intn(10) != 0 {
 	}
 	return this
@@ -1974,7 +2171,7 @@ func NewPopulatedGetRecordsRequest_Body_LogEntry(r randyNet, easy bool) *GetReco
 
 func NewPopulatedGetRecordsReply(r randyNet, easy bool) *GetRecordsReply {
 	this := &GetRecordsReply{}
-	if r.Intn(10) != 0 {
+	if r.Intn(5) != 0 {
 		v10 := r.Intn(5)
 		this.Logs = make([]*GetRecordsReply_LogEntry, v10)
 		for i := 0; i < v10; i++ {
@@ -1989,14 +2186,14 @@ func NewPopulatedGetRecordsReply(r randyNet, easy bool) *GetRecordsReply {
 func NewPopulatedGetRecordsReply_LogEntry(r randyNet, easy bool) *GetRecordsReply_LogEntry {
 	this := &GetRecordsReply_LogEntry{}
 	this.LogID = NewPopulatedProtoPeerID(r)
-	if r.Intn(10) != 0 {
+	if r.Intn(5) != 0 {
 		v11 := r.Intn(5)
 		this.Records = make([]*Log_Record, v11)
 		for i := 0; i < v11; i++ {
 			this.Records[i] = NewPopulatedLog_Record(r, easy)
 		}
 	}
-	if r.Intn(10) != 0 {
+	if r.Intn(5) != 0 {
 		this.Log = NewPopulatedLog(r, easy)
 	}
 	if !easy && r.Intn(10) != 0 {
@@ -2006,10 +2203,10 @@ func NewPopulatedGetRecordsReply_LogEntry(r randyNet, easy bool) *GetRecordsRepl
 
 func NewPopulatedPushRecordRequest(r randyNet, easy bool) *PushRecordRequest {
 	this := &PushRecordRequest{}
-	if r.Intn(10) != 0 {
+	if r.Intn(5) != 0 {
 		this.Header = NewPopulatedHeader(r, easy)
 	}
-	if r.Intn(10) != 0 {
+	if r.Intn(5) != 0 {
 		this.Body = NewPopulatedPushRecordRequest_Body(r, easy)
 	}
 	if !easy && r.Intn(10) != 0 {
@@ -2021,7 +2218,7 @@ func NewPopulatedPushRecordRequest_Body(r randyNet, easy bool) *PushRecordReques
 	this := &PushRecordRequest_Body{}
 	this.ThreadID = NewPopulatedProtoThreadID(r)
 	this.LogID = NewPopulatedProtoPeerID(r)
-	if r.Intn(10) != 0 {
+	if r.Intn(5) != 0 {
 		this.Record = NewPopulatedLog_Record(r, easy)
 	}
 	if !easy && r.Intn(10) != 0 {
@@ -2314,6 +2511,9 @@ func (m *GetRecordsRequest_Body) Size() (n int) {
 			n += 1 + l + sovNet(uint64(l))
 		}
 	}
+	if m.AllLogs {
+		n += 2
+	}
 	return n
 }
 
@@ -2423,14 +2623,7 @@ func (m *PushRecordReply) Size() (n int) {
 }
 
 func sovNet(x uint64) (n int) {
-	for {
-		n++
-		x >>= 7
-		if x == 0 {
-			break
-		}
-	}
-	return n
+	return (math_bits.Len64(x|1) + 6) / 7
 }
 func sozNet(x uint64) (n int) {
 	return sovNet(uint64((x << 1) ^ uint64((int64(x) >> 63))))
@@ -3904,6 +4097,26 @@ func (m *GetRecordsRequest_Body) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
+		case 4:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field AllLogs", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowNet
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.AllLogs = bool(v != 0)
 		default:
 			iNdEx = preIndex
 			skippy, err := skipNet(dAtA[iNdEx:])
@@ -4655,6 +4868,7 @@ func (m *PushRecordReply) Unmarshal(dAtA []byte) error {
 func skipNet(dAtA []byte) (n int, err error) {
 	l := len(dAtA)
 	iNdEx := 0
+	depth := 0
 	for iNdEx < l {
 		var wire uint64
 		for shift := uint(0); ; shift += 7 {
@@ -4686,10 +4900,8 @@ func skipNet(dAtA []byte) (n int, err error) {
 					break
 				}
 			}
-			return iNdEx, nil
 		case 1:
 			iNdEx += 8
-			return iNdEx, nil
 		case 2:
 			var length int
 			for shift := uint(0); ; shift += 7 {
@@ -4710,55 +4922,30 @@ func skipNet(dAtA []byte) (n int, err error) {
 				return 0, ErrInvalidLengthNet
 			}
 			iNdEx += length
-			if iNdEx < 0 {
-				return 0, ErrInvalidLengthNet
-			}
-			return iNdEx, nil
 		case 3:
-			for {
-				var innerWire uint64
-				var start int = iNdEx
-				for shift := uint(0); ; shift += 7 {
-					if shift >= 64 {
-						return 0, ErrIntOverflowNet
-					}
-					if iNdEx >= l {
-						return 0, io.ErrUnexpectedEOF
-					}
-					b := dAtA[iNdEx]
-					iNdEx++
-					innerWire |= (uint64(b) & 0x7F) << shift
-					if b < 0x80 {
-						break
-					}
-				}
-				innerWireType := int(innerWire & 0x7)
-				if innerWireType == 4 {
-					break
-				}
-				next, err := skipNet(dAtA[start:])
-				if err != nil {
-					return 0, err
-				}
-				iNdEx = start + next
-				if iNdEx < 0 {
-					return 0, ErrInvalidLengthNet
-				}
-			}
-			return iNdEx, nil
+			depth++
 		case 4:
-			return iNdEx, nil
+			if depth == 0 {
+				return 0, ErrUnexpectedEndOfGroupNet
+			}
+			depth--
 		case 5:
 			iNdEx += 4
-			return iNdEx, nil
 		default:
 			return 0, fmt.Errorf("proto: illegal wireType %d", wireType)
 		}
+		if iNdEx < 0 {
+			return 0, ErrInvalidLengthNet
+		}
+		if depth == 0 {
+			return iNdEx, nil
+		}
 	}
-	panic("unreachable")
+	return 0, io.ErrUnexpectedEOF
 }
 
 var (
-	ErrInvalidLengthNet = fmt.Errorf("proto: negative length found during unmarshaling")
-	ErrIntOverflowNet   = fmt.Errorf("proto: integer overflow")
+	ErrInvalidLengthNet        = fmt.Errorf("proto: negative length found during unmarshaling")
+	ErrIntOverflowNet          = fmt.Errorf("proto: integer overflow")
+	ErrUnexpectedEndOfGroupNet = fmt.Errorf("proto: unexpected end of group")
 )

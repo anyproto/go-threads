@@ -95,6 +95,8 @@ message GetRecordsRequest {
         bytes serviceKey = 2 [(gogoproto.customtype) = "ProtoKey"];
         // List of requested logs.
         repeated LogEntry logs = 3;
+        // request all known logs, not only specified.
+        bool allLogs = 4;
 
         // LogEntry represents a single log.
         message LogEntry {
