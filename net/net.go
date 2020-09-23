@@ -79,7 +79,7 @@ var (
 		Subsystem: "net",
 		Name:      "pull_thread_duration_seconds",
 		Help:      "Pulling process duration",
-		Buckets: timeBuckets([]time.Duration{
+		Buckets: util.MetricTimeBuckets([]time.Duration{
 			256 * time.Millisecond,
 			512 * time.Millisecond,
 			1024 * time.Millisecond,
@@ -96,14 +96,6 @@ var (
 			240 * time.Second,
 		}),
 	})
-
-	timeBuckets = func(scale []time.Duration) []float64 {
-		buckets := make([]float64, len(scale))
-		for i, b := range scale {
-			buckets[i] = b.Seconds()
-		}
-		return buckets
-	}
 )
 
 func init() {
@@ -456,9 +448,7 @@ func (n *net) pullThread(ctx context.Context, tid thread.ID) error {
 
 	started := time.Now()
 	pullThreadCounter.Inc()
-	defer func() {
-		pullThreadDuration.Observe(float64(time.Since(started)) / float64(time.Second))
-	}()
+	defer util.MetricObserveSeconds(pullThreadDuration, started)
 
 	info, err := n.store.GetThread(tid)
 	if err != nil {
