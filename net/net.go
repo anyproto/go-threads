@@ -21,7 +21,6 @@ import (
 	gostream "github.com/libp2p/go-libp2p-gostream"
 	ma "github.com/multiformats/go-multiaddr"
 	prom "github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/textileio/go-threads/broadcast"
 	"github.com/textileio/go-threads/cbor"
 	"github.com/textileio/go-threads/core/app"
@@ -61,13 +60,19 @@ var (
 )
 
 var (
+	servedThreads = prom.NewGauge(prom.GaugeOpts{
+		Namespace: "threads",
+		Subsystem: "net",
+		Name:      "threads_total",
+		Help:      "Number of served threads",
+	})
+
 	pullThreadCounter = prom.NewCounter(prom.CounterOpts{
 		Namespace: "threads",
 		Subsystem: "net",
 		Name:      "pull_thread_total",
 		Help:      "Number of pull thread attempts",
 	})
-
 
 	pullThreadDuration = prom.NewHistogram(prom.HistogramOpts{
 		Namespace: "threads",
@@ -105,10 +110,10 @@ var (
 )
 
 func init() {
+	prom.MustRegister(servedThreads)
 	prom.MustRegister(pullThreadCounter)
 	prom.MustRegister(pullThreadDuration)
 }
-
 
 var (
 	_ util.SemaphoreKey = (*semaThreadPull)(nil)
@@ -457,7 +462,6 @@ func (n *net) pullThread(ctx context.Context, tid thread.ID) error {
 	defer func() {
 		pullThreadDuration.Observe(float64(time.Since(started)) / float64(time.Second))
 	}()
-
 
 	info, err := n.store.GetThread(tid)
 	if err != nil {
@@ -1181,6 +1185,9 @@ func (n *net) startPulling() {
 			log.Errorf("error listing threads: %s", err)
 			return
 		}
+
+		servedThreads.Set(float64(len(ts)))
+
 		for _, id := range ts {
 			go func(id thread.ID) {
 				if err := n.pullThread(n.ctx, id); err != nil {
@@ -1189,6 +1196,7 @@ func (n *net) startPulling() {
 			}(id)
 		}
 	}
+
 	timer := time.NewTimer(InitialPullInterval)
 	select {
 	case <-timer.C:
