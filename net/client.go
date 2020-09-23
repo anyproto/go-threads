@@ -2,6 +2,7 @@ package net
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	nnet "net"
 	"sync"
@@ -168,47 +169,20 @@ func (r *records) Store(p peer.ID, key cid.Cid, value core.Record) {
 func (s *server) getRecords(
 	ctx context.Context,
 	tid thread.ID,
-	lid peer.ID,
 	offsets map[peer.ID]cid.Cid,
 	limit int,
+	all bool,
 ) (map[peer.ID][]core.Record, error) {
 	sk, err := s.net.store.ServiceKey(tid)
 	if err != nil {
 		return nil, err
-	}
-	if sk == nil {
-		return nil, fmt.Errorf("a service-key is required to request records")
-	}
-
-	pblgs := make([]*pb.GetRecordsRequest_Body_LogEntry, 0, len(offsets))
-	for lid, offset := range offsets {
-		pblgs = append(pblgs, &pb.GetRecordsRequest_Body_LogEntry{
-			LogID:  &pb.ProtoPeerID{ID: lid},
-			Offset: &pb.ProtoCid{Cid: offset},
-			Limit:  int32(limit),
-		})
+	} else if sk == nil {
+		return nil, errors.New("a service-key is required to request records")
 	}
 
-	body := &pb.GetRecordsRequest_Body{
-		ThreadID:   &pb.ProtoThreadID{ID: tid},
-		ServiceKey: &pb.ProtoKey{Key: sk},
-		Logs:       pblgs,
-	}
-	sig, key, err := s.signRequestBody(body)
+	reqMap, err := s.distributeGetRecordsRequests(sk, tid, offsets, limit, all)
 	if err != nil {
-		return nil, err
-	}
-	req := &pb.GetRecordsRequest{
-		Header: &pb.Header{
-			PubKey:    &pb.ProtoPubKey{PubKey: key},
-			Signature: sig,
-		},
-		Body: body,
-	}
-
-	logAddrs, err := s.net.store.Addrs(tid, lid)
-	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("distributing GetRecords requests: %w", err)
 	}
 
 	var (
@@ -217,7 +191,7 @@ func (s *server) getRecords(
 	)
 
 	// Pull from each address
-	for _, addr := range logAddrs {
+	for addr := range reqMap {
 		wg.Add(1)
 
 		go withErrLog(addr, func(addr ma.Multiaddr) error {
@@ -239,7 +213,7 @@ func (s *server) getRecords(
 
 			cctx, cancel := context.WithTimeout(ctx, PullTimeout)
 			defer cancel()
-			reply, err := client.GetRecords(cctx, req)
+			reply, err := client.GetRecords(cctx, reqMap[addr])
 			if err != nil {
 				log.Warnf("get records from %s failed: %s", pid, err)
 				return nil
@@ -288,6 +262,116 @@ func (s *server) getRecords(
 	wg.Wait()
 
 	return recs.List(), nil
+}
+
+// optimally distribute requests to all related addresses
+func (s *server) distributeGetRecordsRequests(
+	serviceKey *sym.Key,
+	tid thread.ID,
+	offsets map[peer.ID]cid.Cid,
+	limit int,
+	all bool,
+) (map[ma.Multiaddr]*pb.GetRecordsRequest, error) {
+	var (
+		requestMap = make(map[ma.Multiaddr]*pb.GetRecordsRequest, len(offsets))
+		logAddrs   = make(map[peer.ID][]ma.Multiaddr, len(offsets))
+
+		// turn the map with log addresses inside out to obtain unique addresses and related logs
+		addressLogs = func(las map[peer.ID][]ma.Multiaddr) map[ma.Multiaddr][]peer.ID {
+			var addrLogs = make(map[ma.Multiaddr][]peer.ID, len(las))
+			for lid, addrs := range las {
+				for _, addr := range addrs {
+					addrLogs[addr] = append(addrLogs[addr], lid)
+				}
+			}
+			return addrLogs
+		}
+
+		// from the common offset map take info about provided log IDs only
+		pruneOffsets = func(offsets map[peer.ID]cid.Cid, lids []peer.ID) map[peer.ID]cid.Cid {
+			var pruned = make(map[peer.ID]cid.Cid, len(lids))
+			for _, lid := range lids {
+				if offset, defined := offsets[lid]; defined {
+					pruned[lid] = offset
+				}
+			}
+			return pruned
+		}
+	)
+
+	// collect log addresses
+	for lid := range offsets {
+		las, err := s.net.store.Addrs(tid, lid)
+		if err != nil {
+			return nil, err
+		}
+		logAddrs[lid] = las
+	}
+
+	if all {
+		// if caller is interested in all the logs (including unknown ones)
+		// it should send the same request to every corresponding address
+		req, err := s.constructGetRecordsRequest(serviceKey, tid, offsets, limit, true)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, addrs := range logAddrs {
+			for _, addr := range addrs {
+				requestMap[addr] = req
+			}
+		}
+
+	} else {
+		// otherwise it should be more precise and make specific requests
+		// to every unique address asking for the related logs only
+		for addr, lids := range addressLogs(logAddrs) {
+			req, err := s.constructGetRecordsRequest(serviceKey, tid, pruneOffsets(offsets, lids), limit, false)
+			if err != nil {
+				return nil, err
+			}
+			requestMap[addr] = req
+		}
+	}
+
+	return requestMap, nil
+}
+
+func (s *server) constructGetRecordsRequest(
+	serviceKey *sym.Key,
+	tid thread.ID,
+	offsets map[peer.ID]cid.Cid,
+	limit int,
+	all bool,
+) (*pb.GetRecordsRequest, error) {
+	var pblgs = make([]*pb.GetRecordsRequest_Body_LogEntry, 0, len(offsets))
+	for lid, offset := range offsets {
+		pblgs = append(pblgs, &pb.GetRecordsRequest_Body_LogEntry{
+			LogID:  &pb.ProtoPeerID{ID: lid},
+			Offset: &pb.ProtoCid{Cid: offset},
+			Limit:  int32(limit),
+		})
+	}
+
+	body := &pb.GetRecordsRequest_Body{
+		ThreadID:   &pb.ProtoThreadID{ID: tid},
+		ServiceKey: &pb.ProtoKey{Key: serviceKey},
+		Logs:       pblgs,
+		AllLogs:    all,
+	}
+
+	sig, key, err := s.signRequestBody(body)
+	if err != nil {
+		return nil, fmt.Errorf("signing GetRecords request: %w", err)
+	}
+
+	return &pb.GetRecordsRequest{
+		Header: &pb.Header{
+			PubKey:    &pb.ProtoPubKey{PubKey: key},
+			Signature: sig,
+		},
+		Body: body,
+	}, nil
 }
 
 // pushRecord to log addresses and thread topic.

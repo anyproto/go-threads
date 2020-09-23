@@ -166,24 +166,33 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 	for _, l := range req.Body.Logs {
 		reqd[l.LogID.ID] = l
 	}
+
 	info, err := s.net.store.GetThread(req.Body.ThreadID.ID)
 	if err != nil {
 		return nil, err
 	}
-	pbrecs.Logs = make([]*pb.GetRecordsReply_LogEntry, len(info.Logs))
 
-	for i, lg := range info.Logs {
-		var offset cid.Cid
-		var limit int
-		var pblg *pb.Log
+	pbrecs.Logs = make([]*pb.GetRecordsReply_LogEntry, 0, len(info.Logs))
+
+	for _, lg := range info.Logs {
+		var (
+			offset cid.Cid
+			limit  int
+			pblg   *pb.Log
+		)
+
 		if opts, ok := reqd[lg.ID]; ok {
 			offset = opts.Offset.Cid
 			limit = int(opts.Limit)
-		} else {
+		} else if req.Body.AllLogs {
 			offset = cid.Undef
 			limit = MaxPullLimit
+			// include log information when it's unknown to caller
 			pblg = logToProto(lg)
+		} else {
+			continue
 		}
+
 		recs, err := s.net.getLocalRecords(ctx, req.Body.ThreadID.ID, lg.ID, offset, limit)
 		if err != nil {
 			return nil, status.Error(codes.Internal, err.Error())
@@ -200,7 +209,7 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 				return nil, status.Error(codes.Internal, err.Error())
 			}
 		}
-		pbrecs.Logs[i] = entry
+		pbrecs.Logs = append(pbrecs.Logs, entry)
 
 		log.Debugf("sending %d records in log %s to %s", len(recs), lg.ID, pid)
 	}
