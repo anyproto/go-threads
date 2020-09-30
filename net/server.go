@@ -161,9 +161,9 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 	if err != nil {
 		return nil, err
 	}
-	log.With("peer", pid.String()).
-		With("thread", req.Body.ThreadID.String()).
-		Debugf("received get records request from %s: thread %s", pid, req.Body.ThreadID.String())
+	log := log.With("peer", pid.String()).
+		With("thread", req.Body.ThreadID.String())
+	log.Debugf("received get records request from %s: thread %s", pid, req.Body.ThreadID.String())
 
 	pbrecs := &pb.GetRecordsReply{}
 	if err := s.checkServiceKey(req.Body.ThreadID.ID, req.Body.ServiceKey); err != nil {
