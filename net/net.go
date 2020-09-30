@@ -20,6 +20,7 @@ import (
 	pstore "github.com/libp2p/go-libp2p-core/peerstore"
 	gostream "github.com/libp2p/go-libp2p-gostream"
 	ma "github.com/multiformats/go-multiaddr"
+	prom "github.com/prometheus/client_golang/prometheus"
 	"github.com/textileio/go-threads/broadcast"
 	"github.com/textileio/go-threads/cbor"
 	"github.com/textileio/go-threads/core/app"
@@ -57,6 +58,51 @@ var (
 	// tokenChallengeTimeout is the duration of time given to an identity to complete a token challenge.
 	tokenChallengeTimeout = time.Minute
 )
+
+var (
+	servedThreads = prom.NewGauge(prom.GaugeOpts{
+		Namespace: "threads",
+		Subsystem: "net",
+		Name:      "threads_total",
+		Help:      "Number of served threads",
+	})
+
+	pullThreadCounter = prom.NewCounter(prom.CounterOpts{
+		Namespace: "threads",
+		Subsystem: "net",
+		Name:      "pull_thread_total",
+		Help:      "Number of pull thread attempts",
+	})
+
+	pullThreadDuration = prom.NewHistogram(prom.HistogramOpts{
+		Namespace: "threads",
+		Subsystem: "net",
+		Name:      "pull_thread_duration_seconds",
+		Help:      "Pulling process duration",
+		Buckets: util.MetricTimeBuckets([]time.Duration{
+			256 * time.Millisecond,
+			512 * time.Millisecond,
+			1024 * time.Millisecond,
+			2 * time.Second,
+			4 * time.Second,
+			8 * time.Second,
+			16 * time.Second,
+			30 * time.Second,
+			45 * time.Second,
+			60 * time.Second,
+			90 * time.Second,
+			120 * time.Second,
+			180 * time.Second,
+			240 * time.Second,
+		}),
+	})
+)
+
+func init() {
+	prom.MustRegister(servedThreads)
+	prom.MustRegister(pullThreadCounter)
+	prom.MustRegister(pullThreadDuration)
+}
 
 var (
 	_ util.SemaphoreKey = (*semaThreadPull)(nil)
@@ -393,70 +439,34 @@ func (n *net) PullThread(ctx context.Context, id thread.ID, opts ...core.ThreadO
 }
 
 // pullThread for the new records. This method is thread-safe.
-func (n *net) pullThread(ctx context.Context, id thread.ID) error {
-	tps := n.semaphores.Get(semaThreadPull(id))
+func (n *net) pullThread(ctx context.Context, tid thread.ID) error {
+	tps := n.semaphores.Get(semaThreadPull(tid))
 	if !tps.TryAcquire() {
-		log.Debugf("skip pulling thread %s: concurrent pull in progress", id)
+		log.Debugf("skip pulling thread %s: concurrent pull in progress", tid)
 		return nil
 	}
 
-	info, err := n.store.GetThread(id)
+	started := time.Now()
+	pullThreadCounter.Inc()
+	defer util.MetricObserveSeconds(pullThreadDuration, started)
+
+	offsets, err := n.threadOffsets(tid)
 	if err != nil {
 		tps.Release()
 		return err
 	}
 
-	// Gather offsets for each log
-	offsets := make(map[peer.ID]cid.Cid)
-	for _, lg := range info.Logs {
-		var has bool
-		if lg.Head.Defined() {
-			has, err = n.bstore.Has(lg.Head)
-			if err != nil {
-				tps.Release()
-				return err
-			}
-		}
-		if has {
-			offsets[lg.ID] = lg.Head
-		} else {
-			offsets[lg.ID] = cid.Undef
-		}
-	}
-
-	var (
-		fetchedRcs []map[peer.ID][]core.Record
-		lock       sync.Mutex
-		wg         sync.WaitGroup
-	)
-
-	for _, lg := range info.Logs {
-		wg.Add(1)
-		go func(lg thread.LogInfo) {
-			defer wg.Done()
-			// Pull from addresses
-			recs, err := n.server.getRecords(ctx, id, lg.ID, offsets, MaxPullLimit)
-			if err != nil {
-				log.Error(err)
-				return
-			}
-
-			lock.Lock()
-			fetchedRcs = append(fetchedRcs, recs)
-			lock.Unlock()
-		}(lg)
-	}
-	wg.Wait()
+	// Pull from addresses
+	recs, err := n.server.getRecords(ctx, tid, offsets, MaxPullLimit)
 	tps.Release()
+	if err != nil {
+		return err
+	}
 
-	// maybe we should preliminary deduplicate records?
-	for _, recs := range fetchedRcs {
-		for lid, rs := range recs {
-			for _, r := range rs {
-				if err = n.putRecord(ctx, id, lid, r); err != nil {
-					log.Error(err)
-					return err
-				}
+	for lid, rs := range recs {
+		for _, r := range rs {
+			if err = n.putRecord(ctx, tid, lid, r); err != nil {
+				return err
 			}
 		}
 	}
@@ -599,22 +609,18 @@ func (n *net) AddReplicator(ctx context.Context, id thread.ID, paddr ma.Multiadd
 		wg.Add(1)
 		go func(addr ma.Multiaddr) {
 			defer wg.Done()
-			p, err := addr.ValueForProtocol(ma.P_P2P)
+			pid, ok, err := n.callablePeer(addr)
 			if err != nil {
 				log.Error(err)
 				return
-			}
-			pid, err := peer.Decode(p)
-			if err != nil {
-				log.Error(err)
+			} else if !ok {
+				// skip calling itself
 				return
 			}
-			if pid.String() == n.host.ID().String() {
-				return
-			}
+
 			for _, lg := range managedLogs {
 				if err = n.server.pushLog(ctx, info.ID, lg, pid, nil, nil); err != nil {
-					log.Errorf("error pushing log %s to %s", lg.ID, p)
+					log.Errorf("error pushing log %s to %s: %v", lg.ID, pid, err)
 				}
 			}
 		}(addr)
@@ -622,6 +628,25 @@ func (n *net) AddReplicator(ctx context.Context, id thread.ID, paddr ma.Multiadd
 
 	wg.Wait()
 	return pid, nil
+}
+
+// callablePeer attempts to obtain external peer ID from the multiaddress.
+func (n *net) callablePeer(addr ma.Multiaddr) (peer.ID, bool, error) {
+	p, err := addr.ValueForProtocol(ma.P_P2P)
+	if err != nil {
+		return "", false, err
+	}
+
+	pid, err := peer.Decode(p)
+	if err != nil {
+		return "", false, err
+	}
+
+	if pid.String() == n.host.ID().String() {
+		return pid, false, nil
+	}
+
+	return pid, true, nil
 }
 
 func getDialable(addr ma.Multiaddr) (ma.Multiaddr, error) {
@@ -1108,6 +1133,11 @@ func (n *net) getLocalRecords(ctx context.Context, id thread.ID, lid peer.ID, of
 		}
 		r, err := cbor.GetRecord(ctx, n, cursor, sk) // Important invariant: heads are always in blockstore
 		if err != nil {
+			if err == context.DeadlineExceeded {
+				log.With("thread", id.String()).
+					With("log", lid.String()).
+					Errorf("getLocalRecords deadline when getting record %s. In total got %d records", cursor.String(), len(recs))
+			}
 			return nil, err
 		}
 		recs = append([]core.Record{r}, recs...)
@@ -1144,6 +1174,9 @@ func (n *net) startPulling() {
 			log.Errorf("error listing threads: %s", err)
 			return
 		}
+
+		servedThreads.Set(float64(len(ts)))
+
 		for _, id := range ts {
 			go func(id thread.ID) {
 				if err := n.pullThread(n.ctx, id); err != nil {
@@ -1152,6 +1185,7 @@ func (n *net) startPulling() {
 			}(id)
 		}
 	}
+
 	timer := time.NewTimer(InitialPullInterval)
 	select {
 	case <-timer.C:
@@ -1330,25 +1364,57 @@ func (n *net) updateRecordsFromLog(tid thread.ID, lid peer.ID) {
 		return
 	}
 
-	// Get log records for this new log
-	recs, err := n.server.getRecords(
-		n.ctx,
-		tid,
-		lid,
-		map[peer.ID]cid.Cid{lid: cid.Undef},
-		MaxPullLimit)
+	// TODO after protocol change request only new log
+	offsets, err := n.threadOffsets(tid)
+	if err != nil {
+		tps.Release()
+		log.Errorf("getting offsets for thread %s failed: %v", tid, err)
+		return
+	}
+
+	// request records for the new log
+	offsets[lid] = cid.Undef
+
+	recs, err := n.server.getRecords(n.ctx, tid, offsets, MaxPullLimit)
 	tps.Release()
 	if err != nil {
-		log.Error(err)
+		log.Errorf("getting records from new log %s (thread %s) failed: %v", lid, tid, err)
 		return
 	}
 
 	for lid, rs := range recs {
 		for _, r := range rs {
 			if err = n.putRecord(n.ctx, tid, lid, r); err != nil {
-				log.Error(err)
+				log.Errorf("putting records from new log %s (thread %s) failed: %v", lid, tid, err)
 				return
 			}
 		}
 	}
+}
+
+// get offsets for all known thread's logs
+func (n *net) threadOffsets(tid thread.ID) (map[peer.ID]cid.Cid, error) {
+	info, err := n.store.GetThread(tid)
+	if err != nil {
+		return nil, err
+	}
+
+	var offsets = make(map[peer.ID]cid.Cid, len(info.Logs))
+	for _, lg := range info.Logs {
+		var has bool
+		if lg.Head.Defined() {
+			has, err = n.bstore.Has(lg.Head)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		if has {
+			offsets[lg.ID] = lg.Head
+		} else {
+			offsets[lg.ID] = cid.Undef
+		}
+	}
+
+	return offsets, nil
 }

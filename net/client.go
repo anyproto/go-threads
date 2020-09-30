@@ -2,6 +2,7 @@ package net
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	nnet "net"
 	"sync"
@@ -34,6 +35,8 @@ var (
 
 // getLogs in a thread.
 func (s *server) getLogs(ctx context.Context, id thread.ID, pid peer.ID) ([]thread.LogInfo, error) {
+	log := log.With("thread", id.String()).With("peer", pid.String())
+
 	sk, err := s.net.store.ServiceKey(id)
 	if err != nil {
 		return nil, err
@@ -84,6 +87,8 @@ func (s *server) getLogs(ctx context.Context, id thread.ID, pid peer.ID) ([]thre
 
 // pushLog to a peer.
 func (s *server) pushLog(ctx context.Context, id thread.ID, lg thread.LogInfo, pid peer.ID, sk *sym.Key, rk *sym.Key) error {
+	log := log.With("thread", id.String()).With("log", lg.ID).With("peer", pid.String())
+
 	body := &pb.PushLogRequest_Body{
 		ThreadID: &pb.ProtoThreadID{ID: id},
 		Log:      logToProto(lg),
@@ -106,7 +111,7 @@ func (s *server) pushLog(ctx context.Context, id thread.ID, lg thread.LogInfo, p
 		Body: body,
 	}
 
-	log.Debugf("pushing log %s to %s...", lg.ID, pid)
+	log.Debugf("pushing log %s in thread %s to %s...", lg.ID, id.String(), pid)
 
 	client, err := s.dial(pid)
 	if err != nil {
@@ -121,66 +126,23 @@ func (s *server) pushLog(ctx context.Context, id thread.ID, lg thread.LogInfo, p
 	return err
 }
 
-// records maintains an ordered list of records from multiple sources.
-type records struct {
-	sync.RWMutex
-	m map[peer.ID]map[cid.Cid]core.Record
-	s map[peer.ID][]core.Record
-}
-
-// newRecords creates an instance of records.
-func newRecords() *records {
-	return &records{
-		m: make(map[peer.ID]map[cid.Cid]core.Record),
-		s: make(map[peer.ID][]core.Record),
-	}
-}
-
-// List all records.
-func (r *records) List() map[peer.ID][]core.Record {
-	r.RLock()
-	defer r.RUnlock()
-	return r.s
-}
-
-// Store a record.
-func (r *records) Store(p peer.ID, key cid.Cid, value core.Record) {
-	r.Lock()
-	defer r.Unlock()
-	if _, ok := r.m[p]; !ok {
-		r.m[p] = make(map[cid.Cid]core.Record)
-		r.s[p] = make([]core.Record, 0)
-	}
-	if _, ok := r.m[p][key]; ok {
-		return
-	}
-	r.m[p][key] = value
-
-	// Sanity check
-	if len(r.s[p]) > 0 && r.s[p][len(r.s[p])-1].Cid() != value.PrevID() {
-		panic("there is a gap in records list")
-	}
-
-	r.s[p] = append(r.s[p], value)
-}
-
 // getRecords from log addresses.
 func (s *server) getRecords(
 	ctx context.Context,
 	tid thread.ID,
-	lid peer.ID,
 	offsets map[peer.ID]cid.Cid,
 	limit int,
 ) (map[peer.ID][]core.Record, error) {
+	log := log.With("thread", tid.String())
+
 	sk, err := s.net.store.ServiceKey(tid)
 	if err != nil {
 		return nil, err
-	}
-	if sk == nil {
-		return nil, fmt.Errorf("a service-key is required to request records")
+	} else if sk == nil {
+		return nil, errors.New("a service-key is required to request records")
 	}
 
-	pblgs := make([]*pb.GetRecordsRequest_Body_LogEntry, 0, len(offsets))
+	var pblgs = make([]*pb.GetRecordsRequest_Body_LogEntry, 0, len(offsets))
 	for lid, offset := range offsets {
 		pblgs = append(pblgs, &pb.GetRecordsRequest_Body_LogEntry{
 			LogID:  &pb.ProtoPeerID{ID: lid},
@@ -194,10 +156,12 @@ func (s *server) getRecords(
 		ServiceKey: &pb.ProtoKey{Key: sk},
 		Logs:       pblgs,
 	}
+
 	sig, key, err := s.signRequestBody(body)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("signing GetRecords request: %w", err)
 	}
+
 	req := &pb.GetRecordsRequest{
 		Header: &pb.Header{
 			PubKey:    &pb.ProtoPubKey{PubKey: key},
@@ -206,23 +170,30 @@ func (s *server) getRecords(
 		Body: body,
 	}
 
-	logAddrs, err := s.net.store.Addrs(tid, lid)
-	if err != nil {
-		return nil, err
+	// set of unique log addresses
+	var logAddrs = make(map[ma.Multiaddr]struct{}, len(offsets))
+	for lid := range offsets {
+		las, err := s.net.store.Addrs(tid, lid)
+		if err != nil {
+			return nil, err
+		}
+		for _, addr := range las {
+			logAddrs[addr] = struct{}{}
+		}
 	}
 
 	var (
-		recs = newRecords()
-		wg   sync.WaitGroup
+		rc = newRecordCollector()
+		wg sync.WaitGroup
 	)
 
 	// Pull from each address
-	for _, addr := range logAddrs {
+	for addr := range logAddrs {
 		wg.Add(1)
 
 		go withErrLog(addr, func(addr ma.Multiaddr) error {
 			defer wg.Done()
-			pid, ok, err := s.callablePeer(addr)
+			pid, ok, err := s.net.callablePeer(addr)
 			if err != nil {
 				return err
 			} else if !ok {
@@ -230,7 +201,7 @@ func (s *server) getRecords(
 				return nil
 			}
 
-			log.Debugf("getting records from %s...", pid)
+			log.With("peer", pid.String()).Debugf("getting records from %s...", pid)
 
 			client, err := s.dial(pid)
 			if err != nil {
@@ -241,13 +212,13 @@ func (s *server) getRecords(
 			defer cancel()
 			reply, err := client.GetRecords(cctx, req)
 			if err != nil {
-				log.Warnf("get records from %s failed: %s", pid, err)
+				log.With("peer", pid.String()).Warnf("get records from %s failed: %s", pid, err)
 				return nil
 			}
 
 			for _, l := range reply.Logs {
 				var logID = l.LogID.ID
-				log.Debugf("received %d records in log %s from %s", len(l.Records), logID, pid)
+				log.With("peer", pid.String()).With("log", logID.String()).Debugf("received %d records in log %s from %s", len(l.Records), logID, pid)
 
 				if l.Log != nil && len(l.Log.Addrs) > 0 {
 					if err = s.net.store.AddAddrs(tid, logID, addrsFromProto(l.Log.Addrs), pstore.PermanentAddrTTL); err != nil {
@@ -279,7 +250,8 @@ func (s *server) getRecords(
 					if err = rec.Verify(pk); err != nil {
 						return err
 					}
-					recs.Store(logID, rec.Cid(), rec)
+
+					rc.Store(logID, rec)
 				}
 			}
 			return nil
@@ -287,12 +259,13 @@ func (s *server) getRecords(
 	}
 	wg.Wait()
 
-	return recs.List(), nil
+	return rc.List()
 }
 
 // pushRecord to log addresses and thread topic.
 func (s *server) pushRecord(ctx context.Context, id thread.ID, lid peer.ID, rec core.Record) error {
 	// Collect known writers
+	log := log.With("thread", id.String()).With("log", lid.String())
 	addrs := make([]ma.Multiaddr, 0)
 	info, err := s.net.store.GetThread(id)
 	if err != nil {
@@ -326,7 +299,7 @@ func (s *server) pushRecord(ctx context.Context, id thread.ID, lid peer.ID, rec 
 	// Push to each address
 	for _, addr := range addrs {
 		go withErrLog(addr, func(addr ma.Multiaddr) error {
-			pid, ok, err := s.callablePeer(addr)
+			pid, ok, err := s.net.callablePeer(addr)
 			if err != nil {
 				return err
 			} else if !ok {
@@ -342,7 +315,7 @@ func (s *server) pushRecord(ctx context.Context, id thread.ID, lid peer.ID, rec 
 			defer cancel()
 			if _, err = client.PushRecord(cctx, req); err != nil {
 				if status.Convert(err).Code() == codes.NotFound { // Send the missing log
-					log.Debugf("pushing log %s to %s...", lid, pid)
+					log.With("peer", pid.String()).Debugf("pushing log %s to %s...", lid, pid)
 					l, err := s.net.store.GetLog(id, lid)
 					if err != nil {
 						return err
@@ -363,12 +336,12 @@ func (s *server) pushRecord(ctx context.Context, id thread.ID, lid peer.ID, rec 
 						Body: body,
 					}
 					if _, err = client.PushLog(cctx, lreq); err != nil {
-						log.Warnf("push log to %s failed: %s", pid, err)
+						log.With("peer", pid.String()).Warnf("push log to %s failed: %s", pid, err)
 						return nil
 					}
 					return nil
 				}
-				log.Warnf("push record to %s failed: %s", pid, err)
+				log.With("peer", pid.String()).Warnf("push record to %s failed: %s", pid, err)
 				return nil
 			}
 			return nil
@@ -383,25 +356,6 @@ func (s *server) pushRecord(ctx context.Context, id thread.ID, lid peer.ID, rec 
 	}
 
 	return nil
-}
-
-// callablePeer attempts to obtain external peer ID from the multiaddress.
-func (s *server) callablePeer(addr ma.Multiaddr) (peer.ID, bool, error) {
-	p, err := addr.ValueForProtocol(ma.P_P2P)
-	if err != nil {
-		return "", false, err
-	}
-
-	pid, err := peer.Decode(p)
-	if err != nil {
-		return "", false, err
-	}
-
-	if pid.String() == s.net.host.ID().String() {
-		return pid, false, nil
-	}
-
-	return pid, true, nil
 }
 
 // dial attempts to open a gRPC connection over libp2p to a peer.
