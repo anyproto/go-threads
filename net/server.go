@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/gogo/status"
@@ -178,6 +179,8 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 		return nil, err
 	}
 	pbrecs.Logs = make([]*pb.GetRecordsReply_LogEntry, len(info.Logs))
+	ctx, cancel := context.WithTimeout(ctx, time.Second*30)
+	defer cancel()
 
 	for i, lg := range info.Logs {
 		var offset cid.Cid

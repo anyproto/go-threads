@@ -1133,6 +1133,11 @@ func (n *net) getLocalRecords(ctx context.Context, id thread.ID, lid peer.ID, of
 		}
 		r, err := cbor.GetRecord(ctx, n, cursor, sk) // Important invariant: heads are always in blockstore
 		if err != nil {
+			if err == context.DeadlineExceeded {
+				log.With("thread", id.String()).
+					With("log", lid.String()).
+					Errorf("getLocalRecords deadline when getting record %s. In total got %d records", cursor.String(), len(recs))
+			}
 			return nil, err
 		}
 		recs = append([]core.Record{r}, recs...)
