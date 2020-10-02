@@ -21,7 +21,7 @@ type patchEventOld struct {
 func init() {
 	cbornode.RegisterCborType(patchEventOld{})
 	cbornode.RegisterCborType(time.Time{})
-	gob.Register(map[string]interface {}{})
+	gob.Register(map[string]interface{}{})
 }
 
 func TestJsonPatcher_Migration(t *testing.T) {

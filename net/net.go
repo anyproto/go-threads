@@ -1168,7 +1168,14 @@ func (n *net) deleteRecord(ctx context.Context, rid cid.Cid, sk *sym.Key) (prev 
 
 // startPulling periodically pulls on all threads.
 func (n *net) startPulling() {
-	pull := func() {
+	select {
+	case <-time.After(InitialPullInterval):
+	case <-n.ctx.Done():
+		return
+	}
+
+PullCycle:
+	for {
 		ts, err := n.store.Threads()
 		if err != nil {
 			log.Errorf("error listing threads: %s", err)
@@ -1176,33 +1183,40 @@ func (n *net) startPulling() {
 		}
 
 		servedThreads.Set(float64(len(ts)))
-
-		for _, id := range ts {
-			go func(id thread.ID) {
-				if err := n.pullThread(n.ctx, id); err != nil {
-					log.Errorf("error pulling thread %s: %s", id, err)
-				}
-			}(id)
+		if len(ts) == 0 {
+			// if there are no threads served, just wait and retry
+			select {
+			case <-time.After(PullInterval):
+				continue PullCycle
+			case <-n.ctx.Done():
+				return
+			}
 		}
-	}
 
-	timer := time.NewTimer(InitialPullInterval)
-	select {
-	case <-timer.C:
-		pull()
-	case <-n.ctx.Done():
-		return
-	}
+		var (
+			period = PullInterval / time.Duration(len(ts))
+			ticker = time.NewTicker(period)
+			idx    = 0
+		)
 
-	tick := time.NewTicker(PullInterval)
-	defer tick.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				go func(tid thread.ID) {
+					if err := n.pullThread(n.ctx, tid); err != nil {
+						log.Errorf("error pulling thread %s: %s", tid, err)
+					}
+				}(ts[idx])
+				idx++
+				if idx >= len(ts) {
+					ticker.Stop()
+					continue PullCycle
+				}
 
-	for {
-		select {
-		case <-tick.C:
-			pull()
-		case <-n.ctx.Done():
-			return
+			case <-n.ctx.Done():
+				ticker.Stop()
+				return
+			}
 		}
 	}
 }
