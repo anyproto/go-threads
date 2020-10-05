@@ -40,7 +40,10 @@ var (
 	// MaxPullLimit is the maximum page size for pulling records.
 	MaxPullLimit = 10000
 
-	// InitialPullInterval is the interval between automatic log pulls.
+	// PullStartAfter is the pause before thread pulling process starts.
+	PullStartAfter = time.Second
+
+	// InitialPullInterval is the interval for the first iteration of log pulls.
 	InitialPullInterval = time.Second
 
 	// PullInterval is the interval between automatic log pulls.
@@ -1169,10 +1172,14 @@ func (n *net) deleteRecord(ctx context.Context, rid cid.Cid, sk *sym.Key) (prev 
 // startPulling periodically pulls on all threads.
 func (n *net) startPulling() {
 	select {
-	case <-time.After(InitialPullInterval):
+	case <-time.After(PullStartAfter):
 	case <-n.ctx.Done():
 		return
 	}
+
+	// set pull cycle interval into initial value,
+	// it will be redefined on the next iteration
+	var interval = InitialPullInterval
 
 PullCycle:
 	for {
@@ -1186,7 +1193,8 @@ PullCycle:
 		if len(ts) == 0 {
 			// if there are no threads served, just wait and retry
 			select {
-			case <-time.After(PullInterval):
+			case <-time.After(interval):
+				interval = PullInterval
 				continue PullCycle
 			case <-n.ctx.Done():
 				return
@@ -1194,7 +1202,7 @@ PullCycle:
 		}
 
 		var (
-			period = PullInterval / time.Duration(len(ts))
+			period = interval / time.Duration(len(ts))
 			ticker = time.NewTicker(period)
 			idx    = 0
 		)
@@ -1210,6 +1218,7 @@ PullCycle:
 				idx++
 				if idx >= len(ts) {
 					ticker.Stop()
+					interval = PullInterval
 					continue PullCycle
 				}
 
