@@ -306,34 +306,28 @@ func (s *server) pushRecord(ctx context.Context, id thread.ID, lid peer.ID, rec 
 			}
 			cctx, cancel := context.WithTimeout(context.Background(), PushTimeout)
 			defer cancel()
+
 			if _, err = client.PushRecord(cctx, req); err != nil {
 				if status.Convert(err).Code() == codes.NotFound { // Send the missing log
-					log.Debugf("pushing log %s to %s...", lid, pid)
-					l, err := s.net.store.GetLog(id, lid)
-					if err != nil {
-						return err
+					var logInfo thread.LogInfo
+					for _, l := range info.Logs {
+						if l.ID == lid {
+							logInfo = l
+							break
+						}
 					}
-					body := &pb.PushLogRequest_Body{
-						ThreadID: &pb.ProtoThreadID{ID: id},
-						Log:      logToProto(l),
+
+					if !logInfo.Head.Defined() {
+						return fmt.Errorf("cannot push missing log to %s: local head undefined", pid)
 					}
-					sig, key, err := s.signRequestBody(body)
-					if err != nil {
-						return err
-					}
-					lreq := &pb.PushLogRequest{
-						Header: &pb.Header{
-							PubKey:    &pb.ProtoPubKey{PubKey: key},
-							Signature: sig,
-						},
-						Body: body,
-					}
-					if _, err = client.PushLog(cctx, lreq); err != nil {
-						log.Warnf("push log to %s failed: %s", pid, err)
+
+					if err := s.pushLog(ctx, id, logInfo, pid, nil, nil); err != nil {
+						log.Warnf("push missing log to %s failed: %s", pid, err)
 						return nil
 					}
 					return nil
 				}
+
 				log.Warnf("push record to %s failed: %s", pid, err)
 				return nil
 			}
