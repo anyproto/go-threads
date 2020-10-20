@@ -195,6 +195,12 @@ func (s *server) getRecords(
 				return nil
 			}
 
+			var final = ThreadStatusDownloadFailed
+			if registry := s.net.tStat; registry != nil && registry.Tracked(pid) {
+				registry.Apply(tid, ThreadStatusDownloadStarted)
+				defer func() { registry.Apply(tid, final) }()
+			}
+
 			log.Debugf("getting records from %s...", pid)
 
 			client, err := s.dial(pid)
@@ -246,6 +252,11 @@ func (s *server) getRecords(
 					}
 
 					rc.Store(logID, rec)
+				}
+
+				// check if it's our own log
+				if logID == s.net.Host().ID() {
+					final = ThreadStatusDownloadDone
 				}
 			}
 			return nil
@@ -300,6 +311,12 @@ func (s *server) pushRecord(ctx context.Context, id thread.ID, lid peer.ID, rec 
 				return nil
 			}
 
+			var final = ThreadStatusUploadFailed
+			if registry := s.net.tStat; registry != nil && registry.Tracked(pid) {
+				registry.Apply(id, ThreadStatusUploadStarted)
+				defer func() { registry.Apply(id, final) }()
+			}
+
 			client, err := s.dial(pid)
 			if err != nil {
 				return fmt.Errorf("dial %s failed: %w", pid, err)
@@ -325,12 +342,16 @@ func (s *server) pushRecord(ctx context.Context, id thread.ID, lid peer.ID, rec 
 						log.Warnf("push missing log to %s failed: %s", pid, err)
 						return nil
 					}
+
+					final = ThreadStatusUploadDone
 					return nil
 				}
 
 				log.Warnf("push record to %s failed: %s", pid, err)
 				return nil
 			}
+
+			final = ThreadStatusUploadDone
 			return nil
 		})
 	}
