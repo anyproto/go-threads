@@ -87,6 +87,7 @@ type net struct {
 	bstore bs.Blockstore
 
 	store lstore.Logstore
+	tStat *ThreadStatusRegistry
 
 	rpc    *grpc.Server
 	server *server
@@ -103,8 +104,9 @@ type net struct {
 
 // Config is used to specify thread instance options.
 type Config struct {
-	Debug  bool
-	PubSub bool
+	Debug    bool
+	PubSub   bool
+	SyncPeer peer.ID
 }
 
 // NewNetwork creates an instance of net from the given host and thread store.
@@ -128,12 +130,18 @@ func NewNetwork(
 		}
 	}
 
+	var tStat *ThreadStatusRegistry
+	if err := conf.SyncPeer.Validate(); err == nil {
+		tStat = NewThreadStatusRegistry(conf.SyncPeer)
+	}
+
 	ctx, cancel := context.WithCancel(ctx)
 	t := &net{
 		DAGService: ds,
 		host:       h,
 		bstore:     bstore,
 		store:      ls,
+		tStat:      tStat,
 		rpc:        grpc.NewServer(serverOptions...),
 		bus:        broadcast.NewBroadcaster(EventBusCapacity),
 		connectors: make(map[thread.ID]*app.Connector),

@@ -119,8 +119,9 @@ func DefaultNetwork(repoPath string, opts ...NetOption) (NetBoostrapper, error) 
 
 	// Build a network
 	api, err := net.NewNetwork(ctx, h, lite.BlockStore(), lite, tstore, net.Config{
-		Debug:  config.Debug,
-		PubSub: config.PubSub,
+		Debug:    config.Debug,
+		PubSub:   config.PubSub,
+		SyncPeer: config.SyncPeer,
 	}, config.GRPCServerOptions, config.GRPCDialOptions)
 	if err != nil {
 		cancel()
@@ -146,9 +147,10 @@ func DefaultNetwork(repoPath string, opts ...NetOption) (NetBoostrapper, error) 
 type NetConfig struct {
 	HostAddr          ma.Multiaddr
 	ConnManager       cconnmgr.ConnManager
-	Debug             bool
 	GRPCServerOptions []grpc.ServerOption
 	GRPCDialOptions   []grpc.DialOption
+	SyncPeer          peer.ID
+	Debug             bool
 	PubSub            bool
 }
 
@@ -192,6 +194,13 @@ func WithNetGRPCDialOptions(opts ...grpc.DialOption) NetOption {
 func WithNetPubSub(enabled bool) NetOption {
 	return func(c *NetConfig) error {
 		c.PubSub = enabled
+		return nil
+	}
+}
+
+func WithNetSyncPeer(pid peer.ID) NetOption {
+	return func(c *NetConfig) error {
+		c.SyncPeer = pid
 		return nil
 	}
 }
