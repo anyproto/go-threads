@@ -30,7 +30,7 @@ type (
 	}
 
 	threadStatusShard struct {
-		data map[uint32]threadStatus
+		data map[uint64]threadStatus
 		sync.Mutex
 	}
 )
@@ -74,7 +74,7 @@ func NewThreadStatusRegistry(pid peer.ID) *ThreadStatusRegistry {
 	var ss [shards]*threadStatusShard
 	for i := 0; i < shards; i++ {
 		ss[i] = &threadStatusShard{
-			data: make(map[uint32]threadStatus),
+			data: make(map[uint64]threadStatus),
 		}
 	}
 
@@ -125,10 +125,10 @@ func (t ThreadStatusRegistry) Total() int {
 	return int(total)
 }
 
-func (t ThreadStatusRegistry) target(tid thread.ID) (*threadStatusShard, uint32) {
-	hasher := fnv.New32a()
+func (t ThreadStatusRegistry) target(tid thread.ID) (*threadStatusShard, uint64) {
+	hasher := fnv.New64a()
 	hasher.Write(tid.Bytes())
-	hash := hasher.Sum32()
+	hash := hasher.Sum64()
 	shard := t.shards[int(hash%shards)]
 	return shard, hash
 }
