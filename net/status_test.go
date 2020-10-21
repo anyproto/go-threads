@@ -3,6 +3,7 @@ package net
 import (
 	"testing"
 
+	tnet "github.com/textileio/go-threads/core/net"
 	"github.com/textileio/go-threads/core/thread"
 )
 
@@ -15,41 +16,41 @@ func TestThreadStatusRegistry(t *testing.T) {
 	tests := []struct {
 		desc     string
 		event    ThreadStatusEvent
-		expected ThreadStatus
+		expected tnet.ThreadSyncStatus
 	}{
 		{
 			desc:     "first uninitialized request",
-			expected: ThreadStatus{Initialized: false},
+			expected: tnet.ThreadSyncStatus{Initialized: false},
 		},
 		{
 			desc:     "start uploading",
 			event:    ThreadStatusUploadStarted,
-			expected: ThreadStatus{Initialized: true, UploadInProgress: true},
+			expected: tnet.ThreadSyncStatus{Initialized: true, UploadInProgress: true},
 		},
 		{
 			desc:     "start simultaneous download",
 			event:    ThreadStatusDownloadStarted,
-			expected: ThreadStatus{Initialized: true, UploadInProgress: true, DownloadInProgress: true},
+			expected: tnet.ThreadSyncStatus{Initialized: true, UploadInProgress: true, DownloadInProgress: true},
 		},
 		{
 			desc:     "upload failed",
 			event:    ThreadStatusUploadFailed,
-			expected: ThreadStatus{Initialized: true, UploadSuccess: false, DownloadInProgress: true},
+			expected: tnet.ThreadSyncStatus{Initialized: true, UploadSuccess: false, DownloadInProgress: true},
 		},
 		{
 			desc:     "download succeeded",
 			event:    ThreadStatusDownloadDone,
-			expected: ThreadStatus{Initialized: true, DownloadInProgress: false, DownloadSuccess: true},
+			expected: tnet.ThreadSyncStatus{Initialized: true, DownloadInProgress: false, DownloadSuccess: true},
 		},
 		{
 			desc:     "uploading again",
 			event:    ThreadStatusUploadStarted,
-			expected: ThreadStatus{Initialized: true, UploadInProgress: true, DownloadSuccess: true},
+			expected: tnet.ThreadSyncStatus{Initialized: true, UploadInProgress: true, DownloadSuccess: true},
 		},
 		{
 			desc:     "finally uploaded",
 			event:    ThreadStatusUploadDone,
-			expected: ThreadStatus{Initialized: true, UploadSuccess: true, DownloadSuccess: true},
+			expected: tnet.ThreadSyncStatus{Initialized: true, UploadSuccess: true, DownloadSuccess: true},
 		},
 	}
 

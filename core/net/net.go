@@ -11,10 +11,9 @@ import (
 	"github.com/libp2p/go-libp2p-core/peer"
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/textileio/go-threads/core/thread"
-	"github.com/textileio/go-threads/net"
 )
 
-// Net wraps API with a DAGService and libp2p host.
+// Net wraps API with a DAGService, libp2p host and sync tracking.
 type Net interface {
 	API
 	SyncInfo
@@ -71,12 +70,20 @@ type API interface {
 	Subscribe(ctx context.Context, opts ...SubOption) (<-chan ThreadRecord, error)
 }
 
+type ThreadSyncStatus struct {
+	Initialized,
+	UploadInProgress,
+	UploadSuccess,
+	DownloadInProgress,
+	DownloadSuccess bool
+}
+
 type SyncInfo interface {
 	// Watch connection status for sync peer.
 	Connected() (<-chan bool, error)
 
 	// Request sync status for given thread.
-	Status(id thread.ID) (net.ThreadStatus, error)
+	Status(id thread.ID) (ThreadSyncStatus, error)
 
 	// Total number of threads with known sync status.
 	SyncedThreads() (int, error)

@@ -5,9 +5,10 @@ import (
 	"sync"
 	"sync/atomic"
 
-	core "github.com/libp2p/go-libp2p-core/network"
+	lnet "github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
 	ma "github.com/multiformats/go-multiaddr"
+	tnet "github.com/textileio/go-threads/core/net"
 	"github.com/textileio/go-threads/core/thread"
 )
 
@@ -18,11 +19,6 @@ const shards = 32
 type (
 	// Event changing thread status
 	ThreadStatusEvent uint8
-
-	// interpreted as a set of flags
-	ThreadStatus struct {
-		Initialized, UploadInProgress, UploadSuccess, DownloadInProgress, DownloadSuccess bool
-	}
 
 	// internal compact representation
 	threadStatus uint8
@@ -64,8 +60,8 @@ const (
 	statusUploadInProgress
 )
 
-func (s threadStatus) decode() ThreadStatus {
-	return ThreadStatus{
+func (s threadStatus) decode() tnet.ThreadSyncStatus {
+	return tnet.ThreadSyncStatus{
 		Initialized:        s&statusInitialized != 0,
 		DownloadSuccess:    s&statusDownloadSuccess != 0,
 		DownloadInProgress: s&statusDownloadInProgress != 0,
@@ -85,7 +81,7 @@ func NewThreadStatusRegistry(pid peer.ID) *threadStatusRegistry {
 	return &threadStatusRegistry{shards: ss, syncPeer: pid}
 }
 
-func (t threadStatusRegistry) Get(tid thread.ID) ThreadStatus {
+func (t threadStatusRegistry) Get(tid thread.ID) tnet.ThreadSyncStatus {
 	shard, hash := t.target(tid)
 
 	shard.Lock()
@@ -159,10 +155,10 @@ func apply(status threadStatus, event ThreadStatusEvent) threadStatus {
 
 /* Connection to sync peer */
 
-var _ core.Notifiee = (*connTracker)(nil)
+var _ lnet.Notifiee = (*connTracker)(nil)
 
 type connTracker struct {
-	net       core.Network
+	net       lnet.Network
 	syncPeer  peer.ID
 	listeners []chan<- bool
 	connected bool
@@ -175,14 +171,14 @@ type connTracker struct {
 // more fine-grained control we should subscribe to host's EventBus
 // and watch all the relevant events. More details about specific
 // event types in the package github.com/go-libp2p-core/event.
-func NewConnTracker(net core.Network, syncPeer peer.ID) *connTracker {
+func NewConnTracker(net lnet.Network, syncPeer peer.ID) *connTracker {
 	return &connTracker{net: net, syncPeer: syncPeer}
 }
 
 func (n *connTracker) Start() {
 	var connStatus bool
 	switch n.net.Connectedness(n.syncPeer) {
-	case core.Connected:
+	case lnet.Connected:
 		connStatus = true
 	default:
 		connStatus = false
@@ -235,7 +231,7 @@ func (n *connTracker) notify(connStatus bool) {
 	}
 }
 
-func (n *connTracker) Connected(_ core.Network, conn core.Conn) {
+func (n *connTracker) Connected(_ lnet.Network, conn lnet.Conn) {
 	if conn.RemotePeer() != n.syncPeer {
 		return
 	}
@@ -244,7 +240,7 @@ func (n *connTracker) Connected(_ core.Network, conn core.Conn) {
 	n.mu.Unlock()
 }
 
-func (n *connTracker) Disconnected(_ core.Network, conn core.Conn) {
+func (n *connTracker) Disconnected(_ lnet.Network, conn lnet.Conn) {
 	if conn.RemotePeer() != n.syncPeer {
 		return
 	}
@@ -253,7 +249,7 @@ func (n *connTracker) Disconnected(_ core.Network, conn core.Conn) {
 	n.mu.Unlock()
 }
 
-func (n *connTracker) Listen(core.Network, ma.Multiaddr)      {}
-func (n *connTracker) ListenClose(core.Network, ma.Multiaddr) {}
-func (n *connTracker) OpenedStream(core.Network, core.Stream) {}
-func (n *connTracker) ClosedStream(core.Network, core.Stream) {}
+func (n *connTracker) Listen(lnet.Network, ma.Multiaddr)      {}
+func (n *connTracker) ListenClose(lnet.Network, ma.Multiaddr) {}
+func (n *connTracker) OpenedStream(lnet.Network, lnet.Stream) {}
+func (n *connTracker) ClosedStream(lnet.Network, lnet.Stream) {}

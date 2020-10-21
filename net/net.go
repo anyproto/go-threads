@@ -1405,9 +1405,9 @@ func (n *net) Connected() (<-chan bool, error) {
 	return n.connTrack.Notify(), nil
 }
 
-func (n *net) Status(id thread.ID) (ThreadStatus, error) {
+func (n *net) Status(id thread.ID) (core.ThreadSyncStatus, error) {
 	if n.tStat == nil {
-		return ThreadStatus{}, ErrSyncTrackingDisabled
+		return core.ThreadSyncStatus{}, ErrSyncTrackingDisabled
 	}
 	return n.tStat.Get(id), nil
 }
