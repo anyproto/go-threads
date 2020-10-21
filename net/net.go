@@ -59,6 +59,8 @@ var (
 
 	// tokenChallengeTimeout is the duration of time given to an identity to complete a token challenge.
 	tokenChallengeTimeout = time.Minute
+
+	ErrSyncTrackingDisabled = errors.New("synchronization tracking disabled")
 )
 
 var (
@@ -85,9 +87,10 @@ type net struct {
 	format.DAGService
 	host   host.Host
 	bstore bs.Blockstore
+	store  lstore.Logstore
 
-	store lstore.Logstore
-	tStat *ThreadStatusRegistry
+	tStat     *threadStatusRegistry
+	connTrack *connTracker
 
 	rpc    *grpc.Server
 	server *server
@@ -130,18 +133,12 @@ func NewNetwork(
 		}
 	}
 
-	var tStat *ThreadStatusRegistry
-	if err := conf.SyncPeer.Validate(); err == nil {
-		tStat = NewThreadStatusRegistry(conf.SyncPeer)
-	}
-
 	ctx, cancel := context.WithCancel(ctx)
 	t := &net{
 		DAGService: ds,
 		host:       h,
 		bstore:     bstore,
 		store:      ls,
-		tStat:      tStat,
 		rpc:        grpc.NewServer(serverOptions...),
 		bus:        broadcast.NewBroadcaster(EventBusCapacity),
 		connectors: make(map[thread.ID]*app.Connector),
@@ -153,6 +150,13 @@ func NewNetwork(
 	t.server, err = newServer(t, conf.PubSub, dialOptions...)
 	if err != nil {
 		return nil, err
+	}
+
+	if err := conf.SyncPeer.Validate(); err == nil {
+		t.tStat = NewThreadStatusRegistry(conf.SyncPeer)
+		t.connTrack = NewConnTracker(h.Network(), conf.SyncPeer)
+		// ensure sync peer connectivity
+		h.ConnManager().Protect(conf.SyncPeer, "sync-peer")
 	}
 
 	listener, err := gostream.Listen(h, thread.Protocol)
@@ -1392,4 +1396,25 @@ func (n *net) threadOffsets(tid thread.ID) (map[peer.ID]cid.Cid, error) {
 	}
 
 	return offsets, nil
+}
+
+func (n *net) Connected() (<-chan bool, error) {
+	if n.connTrack == nil {
+		return nil, ErrSyncTrackingDisabled
+	}
+	return n.connTrack.Notify(), nil
+}
+
+func (n *net) Status(id thread.ID) (ThreadStatus, error) {
+	if n.tStat == nil {
+		return ThreadStatus{}, ErrSyncTrackingDisabled
+	}
+	return n.tStat.Get(id), nil
+}
+
+func (n *net) SyncedThreads() (int, error) {
+	if n.tStat == nil {
+		return 0, ErrSyncTrackingDisabled
+	}
+	return n.tStat.Total(), nil
 }

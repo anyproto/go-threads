@@ -6,16 +6,18 @@ import (
 	"io"
 
 	"github.com/ipfs/go-cid"
-	"github.com/ipfs/go-ipld-format"
+	format "github.com/ipfs/go-ipld-format"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/textileio/go-threads/core/thread"
+	"github.com/textileio/go-threads/net"
 )
 
 // Net wraps API with a DAGService and libp2p host.
 type Net interface {
 	API
+	SyncInfo
 
 	// DAGService provides a DAG API to the network.
 	format.DAGService
@@ -67,6 +69,17 @@ type API interface {
 
 	// Subscribe returns a read-only channel that receives newly created / added thread records.
 	Subscribe(ctx context.Context, opts ...SubOption) (<-chan ThreadRecord, error)
+}
+
+type SyncInfo interface {
+	// Watch connection status for sync peer.
+	Connected() (<-chan bool, error)
+
+	// Request sync status for given thread.
+	Status(id thread.ID) (net.ThreadStatus, error)
+
+	// Total number of threads with known sync status.
+	SyncedThreads() (int, error)
 }
 
 // Token is used to restrict network APIs to a single app.App.
