@@ -153,8 +153,8 @@ func NewNetwork(
 	}
 
 	if err := conf.SyncPeer.Validate(); err == nil {
-		t.tStat = NewThreadStatusRegistry(conf.SyncPeer)
-		t.connTrack = NewConnTracker(h.Network(), conf.SyncPeer)
+		t.connTrack = NewConnTracker(h.Network())
+		t.tStat = NewThreadStatusRegistry(t.connTrack.Track)
 		// ensure sync peer connectivity
 		h.ConnManager().Protect(conf.SyncPeer, "sync-peer")
 	}
@@ -1398,23 +1398,37 @@ func (n *net) threadOffsets(tid thread.ID) (map[peer.ID]cid.Cid, error) {
 	return offsets, nil
 }
 
-func (n *net) Connected() (<-chan bool, error) {
+func (n *net) Connectivity() (<-chan core.ConnectionStatus, error) {
 	if n.connTrack == nil {
 		return nil, ErrSyncTrackingDisabled
 	}
 	return n.connTrack.Notify(), nil
 }
 
-func (n *net) Status(id thread.ID) (core.ThreadSyncStatus, error) {
+func (n *net) Status(tid thread.ID, pid peer.ID) (core.SyncStatus, error) {
 	if n.tStat == nil {
-		return core.ThreadSyncStatus{}, ErrSyncTrackingDisabled
+		return core.SyncStatus{}, ErrSyncTrackingDisabled
 	}
-	return n.tStat.Get(id), nil
+	return n.tStat.Status(tid, pid), nil
 }
 
-func (n *net) SyncedThreads() (int, error) {
+func (n *net) View(tid thread.ID) ([]core.SyncStatus, error) {
 	if n.tStat == nil {
-		return 0, ErrSyncTrackingDisabled
+		return nil, ErrSyncTrackingDisabled
 	}
-	return n.tStat.Total(), nil
+	return n.tStat.View(tid), nil
+}
+
+func (n *net) PeerSummary(pid peer.ID) (core.SyncSummary, error) {
+	if n.tStat == nil {
+		return core.SyncSummary{}, ErrSyncTrackingDisabled
+	}
+	return n.tStat.PeerSummary(pid), nil
+}
+
+func (n *net) ThreadSummary(tid thread.ID) (core.SyncSummary, error) {
+	if n.tStat == nil {
+		return core.SyncSummary{}, ErrSyncTrackingDisabled
+	}
+	return n.tStat.ThreadSummary(tid), nil
 }

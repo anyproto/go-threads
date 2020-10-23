@@ -195,10 +195,10 @@ func (s *server) getRecords(
 				return nil
 			}
 
-			var final = ThreadStatusDownloadFailed
-			if registry := s.net.tStat; registry != nil && registry.Tracked(pid) {
-				registry.Apply(tid, ThreadStatusDownloadStarted)
-				defer func() { registry.Apply(tid, final) }()
+			var final = threadStatusDownloadFailed
+			if registry := s.net.tStat; registry != nil {
+				registry.Apply(pid, tid, threadStatusDownloadStarted)
+				defer func() { registry.Apply(pid, tid, final) }()
 			}
 
 			log.Debugf("getting records from %s...", pid)
@@ -256,7 +256,7 @@ func (s *server) getRecords(
 
 				// check if it's our own log
 				if logID == s.net.Host().ID() {
-					final = ThreadStatusDownloadDone
+					final = threadStatusDownloadDone
 				}
 			}
 			return nil
@@ -268,10 +268,10 @@ func (s *server) getRecords(
 }
 
 // pushRecord to log addresses and thread topic.
-func (s *server) pushRecord(ctx context.Context, id thread.ID, lid peer.ID, rec core.Record) error {
+func (s *server) pushRecord(ctx context.Context, tid thread.ID, lid peer.ID, rec core.Record) error {
 	// Collect known writers
 	addrs := make([]ma.Multiaddr, 0)
-	info, err := s.net.store.GetThread(id)
+	info, err := s.net.store.GetThread(tid)
 	if err != nil {
 		return err
 	}
@@ -284,7 +284,7 @@ func (s *server) pushRecord(ctx context.Context, id thread.ID, lid peer.ID, rec 
 		return err
 	}
 	body := &pb.PushRecordRequest_Body{
-		ThreadID: &pb.ProtoThreadID{ID: id},
+		ThreadID: &pb.ProtoThreadID{ID: tid},
 		LogID:    &pb.ProtoPeerID{ID: lid},
 		Record:   pbrec,
 	}
@@ -311,10 +311,10 @@ func (s *server) pushRecord(ctx context.Context, id thread.ID, lid peer.ID, rec 
 				return nil
 			}
 
-			var final = ThreadStatusUploadFailed
-			if registry := s.net.tStat; registry != nil && registry.Tracked(pid) {
-				registry.Apply(id, ThreadStatusUploadStarted)
-				defer func() { registry.Apply(id, final) }()
+			var final = threadStatusUploadFailed
+			if registry := s.net.tStat; registry != nil {
+				registry.Apply(pid, tid, threadStatusUploadStarted)
+				defer func() { registry.Apply(pid, tid, final) }()
 			}
 
 			client, err := s.dial(pid)
@@ -338,12 +338,12 @@ func (s *server) pushRecord(ctx context.Context, id thread.ID, lid peer.ID, rec 
 						return fmt.Errorf("cannot push missing log to %s: local head undefined", pid)
 					}
 
-					if err := s.pushLog(ctx, id, logInfo, pid, nil, nil); err != nil {
+					if err := s.pushLog(ctx, tid, logInfo, pid, nil, nil); err != nil {
 						log.Warnf("push missing log to %s failed: %s", pid, err)
 						return nil
 					}
 
-					final = ThreadStatusUploadDone
+					final = threadStatusUploadDone
 					return nil
 				}
 
@@ -351,14 +351,14 @@ func (s *server) pushRecord(ctx context.Context, id thread.ID, lid peer.ID, rec 
 				return nil
 			}
 
-			final = ThreadStatusUploadDone
+			final = threadStatusUploadDone
 			return nil
 		})
 	}
 
 	// Finally, publish to the thread's topic
 	if s.ps != nil {
-		if err = s.ps.Publish(ctx, id, req); err != nil {
+		if err = s.ps.Publish(ctx, tid, req); err != nil {
 			log.Errorf("error publishing record: %s", err)
 		}
 	}
