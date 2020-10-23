@@ -3,7 +3,7 @@ package net
 import (
 	"hash/fnv"
 	"sync"
-	"sync/atomic"
+	"time"
 
 	lnet "github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
@@ -12,186 +12,311 @@ import (
 	"github.com/textileio/go-threads/core/thread"
 )
 
-/* Per-thread synchronization status */
+/* Thread synchronization status */
 
-const shards = 32
+const shards = 16
 
 type (
 	// Event changing thread status
-	ThreadStatusEvent uint8
+	threadStatusEvent uint8
 
-	// internal compact representation
-	threadStatus uint8
-
-	// Tracking of threads sync with given peer
+	// Tracking of threads sync with peers
 	threadStatusRegistry struct {
-		shards   [shards]*threadStatusShard
-		syncPeer peer.ID
+		peers     map[uint64][shards]*threadStatusShard
+		onNewPeer []func(peer.ID)
+		mu        sync.RWMutex
 	}
 
+	// Sharded thread sync information
 	threadStatusShard struct {
-		data map[uint64]threadStatus
+		data map[uint64]tnet.SyncStatus
 		sync.Mutex
 	}
 )
 
 const (
-	ThreadStatusDownloadStarted ThreadStatusEvent = 1 + iota
-	ThreadStatusDownloadDone
-	ThreadStatusDownloadFailed
-	ThreadStatusUploadStarted
-	ThreadStatusUploadDone
-	ThreadStatusUploadFailed
+	threadStatusDownloadStarted threadStatusEvent = 1 + iota
+	threadStatusDownloadDone
+	threadStatusDownloadFailed
+	threadStatusUploadStarted
+	threadStatusUploadDone
+	threadStatusUploadFailed
 )
 
-//                             Thread status encoding scheme
-//        +----------+-------------+---------+-------------+---------+-------------+
-//        |          |          Uploading    |      Downloading      |    Status   |
-// Field: | reserved +-------------+---------+-------------+---------+-------------+
-//        |          | in-progress | success | in-progress | success | initialized |
-//        +----------+-------------+---------+-------------+---------+-------------+
-// Bits:  |    7-5   |      4      |    3    |      2      |    1    |      0      |
-//        +----------+-------------+---------+-------------+---------+-------------+
-const (
-	statusInitialized = 1 << iota
-	statusDownloadSuccess
-	statusDownloadInProgress
-	statusUploadSuccess
-	statusUploadInProgress
-)
+func newPeerStatus() [shards]*threadStatusShard {
+	var ps [shards]*threadStatusShard
+	for i := 0; i < shards; i++ {
+		ps[i] = &threadStatusShard{
+			data: make(map[uint64]tnet.SyncStatus),
+		}
+	}
+	return ps
+}
 
-func (s threadStatus) decode() tnet.ThreadSyncStatus {
-	return tnet.ThreadSyncStatus{
-		Initialized:        s&statusInitialized != 0,
-		DownloadSuccess:    s&statusDownloadSuccess != 0,
-		DownloadInProgress: s&statusDownloadInProgress != 0,
-		UploadSuccess:      s&statusUploadSuccess != 0,
-		UploadInProgress:   s&statusUploadInProgress != 0,
+func NewThreadStatusRegistry(onNewPeer ...func(pid peer.ID)) *threadStatusRegistry {
+	return &threadStatusRegistry{
+		peers:     make(map[uint64][shards]*threadStatusShard, 1),
+		onNewPeer: onNewPeer,
 	}
 }
 
-func NewThreadStatusRegistry(pid peer.ID) *threadStatusRegistry {
-	var ss [shards]*threadStatusShard
-	for i := 0; i < shards; i++ {
-		ss[i] = &threadStatusShard{
-			data: make(map[uint64]threadStatus),
+func (t *threadStatusRegistry) Apply(pid peer.ID, tid thread.ID, event threadStatusEvent) {
+	shard, hash, _ := t.shard(pid, tid, true)
+
+	shard.Lock()
+	defer shard.Unlock()
+
+	shard.data[hash] = t.apply(shard.data[hash], event)
+}
+
+func (t *threadStatusRegistry) Status(tid thread.ID, pid peer.ID) tnet.SyncStatus {
+	shard, hash, found := t.shard(pid, tid, false)
+	if !found {
+		return tnet.SyncStatus{}
+	}
+
+	shard.Lock()
+	defer shard.Unlock()
+
+	return shard.data[hash]
+}
+
+func (t *threadStatusRegistry) View(tid thread.ID) []tnet.SyncStatus {
+	var (
+		threadHash = t.hash(tid.Bytes())
+		shardIdx   = int(threadHash % shards)
+	)
+
+	t.mu.RLock()
+	var (
+		numPeers = len(t.peers)
+		sp       = make([]*threadStatusShard, 0, numPeers)
+	)
+	for _, ss := range t.peers {
+		sp = append(sp, ss[shardIdx])
+	}
+	t.mu.RUnlock()
+
+	var (
+		sink = make(chan tnet.SyncStatus, numPeers)
+		view = make([]tnet.SyncStatus, 0, numPeers)
+		sema = make(chan struct{}, shards)
+	)
+
+	for i := 0; i < numPeers; i++ {
+		// limiting concurrency
+		sema <- struct{}{}
+		go func(shard *threadStatusShard) {
+			shard.Lock()
+			var status = shard.data[threadHash]
+			shard.Unlock()
+			sink <- status
+			<-sema
+		}(sp[i])
+	}
+
+	// not all the peers are involved into a thread, so we
+	// should filter and collect non-empty statuses only
+	for i := 0; i < numPeers; i++ {
+		if status := <-sink; status.Up != tnet.Unknown || status.Down != tnet.Unknown {
+			view = append(view, status)
 		}
 	}
 
-	return &threadStatusRegistry{shards: ss, syncPeer: pid}
+	return view
 }
 
-func (t threadStatusRegistry) Get(tid thread.ID) tnet.ThreadSyncStatus {
-	shard, hash := t.target(tid)
+func (t *threadStatusRegistry) PeerSummary(pid peer.ID) tnet.SyncSummary {
+	var peerHash = t.hash([]byte(pid))
 
-	shard.Lock()
-	defer shard.Unlock()
+	t.mu.RLock()
+	ps, found := t.peers[peerHash]
+	t.mu.RUnlock()
+	if !found {
+		return tnet.SyncSummary{}
+	}
 
-	return shard.data[hash].decode()
-}
-
-func (t threadStatusRegistry) Apply(tid thread.ID, event ThreadStatusEvent) {
-	shard, hash := t.target(tid)
-
-	shard.Lock()
-	defer shard.Unlock()
-
-	shard.data[hash] = apply(shard.data[hash], event)
-}
-
-func (t threadStatusRegistry) Tracked(id peer.ID) bool {
-	return id == t.syncPeer
-}
-
-// Count total number of initialized threads
-func (t threadStatusRegistry) Total() int {
 	var (
-		total int32
-		wg    sync.WaitGroup
+		sink = make(chan tnet.SyncStatus, shards)
+		wg   sync.WaitGroup
 	)
 
-	for i := 0; i < shards; i++ {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			shard := t.shards[idx]
+	wg.Add(len(ps))
+	go func() { wg.Wait(); close(sink) }()
+
+	for _, sh := range ps {
+		go func(shard *threadStatusShard) {
 			shard.Lock()
-			atomic.AddInt32(&total, int32(len(shard.data)))
+			var ss = make([]tnet.SyncStatus, 0, len(shard.data))
+			for _, status := range shard.data {
+				if status.Down != tnet.Unknown {
+					ss = append(ss, status)
+				}
+			}
 			shard.Unlock()
-		}(i)
-	}
-	wg.Wait()
 
-	return int(total)
+			for _, status := range ss {
+				sink <- status
+			}
+			wg.Done()
+		}(sh)
+	}
+
+	return t.summary(sink)
 }
 
-func (t threadStatusRegistry) target(tid thread.ID) (*threadStatusShard, uint64) {
+func (t *threadStatusRegistry) ThreadSummary(tid thread.ID) tnet.SyncSummary {
+	var (
+		view = t.View(tid)
+		sink = make(chan tnet.SyncStatus, len(view))
+	)
+
+	for _, status := range view {
+		sink <- status
+	}
+	close(sink)
+
+	return t.summary(sink)
+}
+
+func (t *threadStatusRegistry) hash(b []byte) uint64 {
 	hasher := fnv.New64a()
-	hasher.Write(tid.Bytes())
-	hash := hasher.Sum64()
-	shard := t.shards[int(hash%shards)]
-	return shard, hash
+	hasher.Write(b)
+	return hasher.Sum64()
 }
 
-func apply(status threadStatus, event ThreadStatusEvent) threadStatus {
-	switch event {
-	case ThreadStatusDownloadStarted:
-		status = (status & (statusUploadInProgress | statusUploadSuccess)) | statusDownloadInProgress
-	case ThreadStatusDownloadDone:
-		status = (status & (statusUploadInProgress | statusUploadSuccess)) | statusDownloadSuccess
-	case ThreadStatusDownloadFailed:
-		status = status & (statusUploadInProgress | statusUploadSuccess)
-	case ThreadStatusUploadStarted:
-		status = (status & (statusDownloadInProgress | statusDownloadSuccess)) | statusUploadInProgress
-	case ThreadStatusUploadDone:
-		status = (status & (statusDownloadInProgress | statusDownloadSuccess)) | statusUploadSuccess
-	case ThreadStatusUploadFailed:
-		status = status & (statusDownloadInProgress | statusDownloadSuccess)
+func (t *threadStatusRegistry) shard(
+	pid peer.ID,
+	tid thread.ID,
+	update bool,
+) (*threadStatusShard, uint64, bool) {
+	peerHash := t.hash([]byte(pid))
+
+	t.mu.RLock()
+	ps, found := t.peers[peerHash]
+	t.mu.RUnlock()
+
+	if !found {
+		if !update {
+			return nil, 0, false
+		}
+
+		ps = newPeerStatus()
+		t.mu.Lock()
+		if psExisting, ok := t.peers[peerHash]; !ok {
+			t.peers[peerHash] = ps
+			for _, cb := range t.onNewPeer {
+				go cb(pid)
+			}
+
+		} else {
+			// was already created by another process
+			ps = psExisting
+		}
+		t.mu.Unlock()
 	}
 
-	// thread status considered to be initialized on any applied event
-	return status | statusInitialized
+	threadHash := t.hash(tid.Bytes())
+	shard := ps[int(threadHash%shards)]
+	return shard, threadHash, true
 }
 
-/* Connection to sync peer */
+func (t *threadStatusRegistry) apply(status tnet.SyncStatus, event threadStatusEvent) tnet.SyncStatus {
+	switch event {
+	case threadStatusDownloadStarted:
+		status.Down = tnet.InProgress
+	case threadStatusDownloadDone:
+		status.Down = tnet.Success
+		status.LastPull = time.Now().Unix()
+	case threadStatusDownloadFailed:
+		status.Down = tnet.Failure
+	case threadStatusUploadStarted:
+		status.Up = tnet.InProgress
+	case threadStatusUploadDone:
+		status.Up = tnet.Success
+	case threadStatusUploadFailed:
+		status.Up = tnet.Failure
+	}
+
+	return status
+}
+
+func (t *threadStatusRegistry) summary(ss <-chan tnet.SyncStatus) tnet.SyncSummary {
+	var sum tnet.SyncSummary
+
+	for status := range ss {
+		// Here we're extracting summary from the receiving
+		// status part only b/c uploading stats are inherently
+		// less stable. Irregular pushing data to the nodes is
+		// more likely to be in an irrelevant failed state than
+		// just periodic pulls.
+		switch status.Down {
+		case tnet.InProgress:
+			sum.InProgress += 1
+		case tnet.Failure:
+			sum.Failed += 1
+		case tnet.Success:
+			sum.Synced += 1
+		}
+		if status.LastPull > sum.LastSync {
+			sum.LastSync = status.LastPull
+		}
+	}
+
+	return sum
+}
+
+/* Peer connectivity */
 
 var _ lnet.Notifiee = (*connTracker)(nil)
 
 type connTracker struct {
 	net       lnet.Network
-	syncPeer  peer.ID
-	listeners []chan<- bool
-	connected bool
-	mu        sync.Mutex
+	conns     map[peer.ID]bool
+	listeners []chan<- tnet.ConnectionStatus
+	mu        sync.RWMutex
 }
 
-// Tracks status of libp2p-provided connection to the specified peer.
+// Tracks status of libp2p-provided connection to the peers
+// participating in threads operations.
 // Note: here we track connections on a network layer only, and don't
 // care about protocol negotiation, identity verification etc. For a
 // more fine-grained control we should subscribe to host's EventBus
 // and watch all the relevant events. More details about specific
 // event types in the package github.com/go-libp2p-core/event.
-func NewConnTracker(net lnet.Network, syncPeer peer.ID) *connTracker {
-	return &connTracker{net: net, syncPeer: syncPeer}
+func NewConnTracker(net lnet.Network) *connTracker {
+	var ct = connTracker{
+		net:   net,
+		conns: make(map[peer.ID]bool),
+	}
+
+	// register for network changes
+	net.Notify(&ct)
+	return &ct
 }
 
-func (n *connTracker) Start() {
+// Start tracking connectivity of a given peer.
+func (n *connTracker) Track(pid peer.ID) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	if _, exist := n.conns[pid]; exist {
+		return
+	}
+
 	var connStatus bool
-	switch n.net.Connectedness(n.syncPeer) {
+	switch n.net.Connectedness(pid) {
 	case lnet.Connected:
 		connStatus = true
 	default:
 		connStatus = false
 	}
 
-	n.mu.Lock()
-	defer n.mu.Unlock()
-
 	// set current connection status
-	n.notify(connStatus)
+	n.conns[pid] = connStatus
 
-	// register for network changes
-	n.net.Notify(n)
+	// send current status to all listeners
+	n.notify(pid, connStatus)
 }
 
 // Do not use connTracker after Close!
@@ -206,47 +331,69 @@ func (n *connTracker) Close() {
 	}
 }
 
-func (n *connTracker) Notify() <-chan bool {
-	var listener = make(chan bool, 1)
-
+func (n *connTracker) Notify() <-chan tnet.ConnectionStatus {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	// notify about current status immediately
-	listener <- n.connected
+	var listener = make(chan tnet.ConnectionStatus, len(n.conns))
+
+	// add a new listener
 	n.listeners = append(n.listeners, listener)
+
+	// notify about current statuses immediately
+	for pid, status := range n.conns {
+		listener <- tnet.ConnectionStatus{
+			Peer:      pid,
+			Connected: status,
+		}
+	}
 
 	return listener
 }
 
-// should be invoked under the lock acquired
-func (n *connTracker) notify(connStatus bool) {
-	n.connected = connStatus
+// internal methods should be invoked under the lock acquired!
+
+func (n *connTracker) notify(pid peer.ID, connStatus bool) {
 	for _, listener := range n.listeners {
 		select {
-		case listener <- connStatus:
+		case listener <- tnet.ConnectionStatus{
+			Peer:      pid,
+			Connected: connStatus,
+		}:
 		default:
 			log.Errorf("connTracker notification failed")
 		}
 	}
 }
 
+func (n *connTracker) tracked(pid peer.ID) bool {
+	_, found := n.conns[pid]
+	return found
+}
+
+/* notifiee implementation */
+
 func (n *connTracker) Connected(_ lnet.Network, conn lnet.Conn) {
-	if conn.RemotePeer() != n.syncPeer {
-		return
+	var pid = conn.RemotePeer()
+
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+
+	if n.tracked(pid) {
+		n.notify(pid, true)
+
 	}
-	n.mu.Lock()
-	n.notify(true)
-	n.mu.Unlock()
 }
 
 func (n *connTracker) Disconnected(_ lnet.Network, conn lnet.Conn) {
-	if conn.RemotePeer() != n.syncPeer {
-		return
+	var pid = conn.RemotePeer()
+
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+
+	if n.tracked(pid) {
+		n.notify(pid, false)
 	}
-	n.mu.Lock()
-	n.notify(false)
-	n.mu.Unlock()
 }
 
 func (n *connTracker) Listen(lnet.Network, ma.Multiaddr)      {}
