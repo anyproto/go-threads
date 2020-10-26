@@ -1,65 +1,175 @@
 package net
 
-/* TODO rewrite tests!
-func TestThreadStatusRegistry(t *testing.T) {
+import (
+	"testing"
+	"time"
+
+	"github.com/libp2p/go-libp2p-core/peer"
+	core "github.com/textileio/go-threads/core/net"
+	"github.com/textileio/go-threads/core/thread"
+)
+
+func TestThreadStatusRegistry_Status(t *testing.T) {
 	var (
-		reg = NewThreadStatusRegistry() // TODO: we should also test for callbacks on a new peer!
+		pid = peer.ID("test-peer")
 		tid = thread.NewIDV1(thread.Raw, 24)
+
+		newPeerDetected      = false
+		connectivityCallback = func(id peer.ID) {
+			if id == pid {
+				newPeerDetected = true
+			} else {
+				panic("unexpected peer")
+			}
+		}
+
+		reg = NewThreadStatusRegistry(connectivityCallback)
 	)
 
+	status := reg.Status(tid, pid)
+	if newPeerDetected {
+		t.Errorf("new peer should not be tracked until first event")
+	}
+	if status.Up != core.Unknown || status.Down != core.Unknown {
+		t.Errorf("status must be unknown until first event")
+	}
+
+	// send events
+	runScenario1(reg, pid, tid)
+
+	// let callback a chance to be invoked
+	time.Sleep(20 * time.Millisecond)
+	if !newPeerDetected {
+		t.Errorf("new peer must be detected")
+	}
+
+	status = reg.Status(tid, pid)
+	if expected, actual := core.Failure, status.Up; expected != actual {
+		t.Errorf("bad upload status, expected: %s, actual: %s", expected, actual)
+	}
+	if expected, actual := core.Success, status.Down; expected != actual {
+		t.Errorf("bad download status, expected: %s, actual: %s", expected, actual)
+	}
+	if status.LastPull <= 0 {
+		t.Errorf("last pull time must be defined after successfull download")
+	}
+}
+
+func TestThreadStatusRegistry_View(t *testing.T) {
+	var (
+		pid1 = peer.ID("test-peer-1")
+		pid2 = peer.ID("test-peer-2")
+		pid3 = peer.ID("test-peer-3")
+		tid1 = thread.NewIDV1(thread.Raw, 24)
+		tid2 = thread.NewIDV1(thread.Raw, 24)
+
+		reg = NewThreadStatusRegistry()
+	)
+
+	runScenario2(reg, pid1, pid2, pid3, tid1, tid2)
+
+	view := reg.View(tid1)
+	if len(view) != 2 {
+		t.Errorf("incomplete view")
+	}
+
+	if !(view[0].Up == core.Success && view[0].Down == core.InProgress &&
+		view[1].Up == core.Failure && view[1].Down == core.Success) &&
+		!(view[0].Up == core.Failure && view[0].Down == core.Success &&
+			view[1].Up == core.Success && view[1].Down == core.InProgress) {
+		t.Errorf("bad view: %+v", view)
+	}
+}
+
+func TestThreadStatusRegistry_Summary(t *testing.T) {
+	var (
+		pid1 = peer.ID("test-peer-1")
+		pid2 = peer.ID("test-peer-2")
+		pid3 = peer.ID("test-peer-3")
+		tid1 = thread.NewIDV1(thread.Raw, 24)
+		tid2 = thread.NewIDV1(thread.Raw, 24)
+
+		reg = NewThreadStatusRegistry()
+	)
+
+	runScenario2(reg, pid1, pid2, pid3, tid1, tid2)
+
 	tests := []struct {
-		desc     string
-		event    threadStatusEvent
-		expected tnet.ThreadSyncStatus
+		name             string
+		expected, actual core.SyncSummary
 	}{
 		{
-			desc:     "first uninitialized request",
-			expected: tnet.ThreadSyncStatus{Initialized: false},
+			name:     "thread #1",
+			expected: core.SyncSummary{InProgress: 1, Synced: 1, Failed: 0},
+			actual:   reg.ThreadSummary(tid1),
 		},
 		{
-			desc:     "start uploading",
-			event:    ThreadStatusUploadStarted,
-			expected: tnet.ThreadSyncStatus{Initialized: true, UploadInProgress: true},
+			name:     "thread #2",
+			expected: core.SyncSummary{InProgress: 1, Synced: 1, Failed: 0},
+			actual:   reg.ThreadSummary(tid2),
 		},
 		{
-			desc:     "start simultaneous download",
-			event:    ThreadStatusDownloadStarted,
-			expected: tnet.ThreadSyncStatus{Initialized: true, UploadInProgress: true, DownloadInProgress: true},
+			name:     "peer-1",
+			expected: core.SyncSummary{InProgress: 1, Synced: 0, Failed: 0},
+			actual:   reg.PeerSummary(pid1),
 		},
 		{
-			desc:     "upload failed",
-			event:    ThreadStatusUploadFailed,
-			expected: tnet.ThreadSyncStatus{Initialized: true, UploadSuccess: false, DownloadInProgress: true},
+			name:     "peer-2",
+			expected: core.SyncSummary{InProgress: 0, Synced: 1, Failed: 0},
+			actual:   reg.PeerSummary(pid2),
 		},
 		{
-			desc:     "download succeeded",
-			event:    ThreadStatusDownloadDone,
-			expected: tnet.ThreadSyncStatus{Initialized: true, DownloadInProgress: false, DownloadSuccess: true},
-		},
-		{
-			desc:     "uploading again",
-			event:    ThreadStatusUploadStarted,
-			expected: tnet.ThreadSyncStatus{Initialized: true, UploadInProgress: true, DownloadSuccess: true},
-		},
-		{
-			desc:     "finally uploaded",
-			event:    ThreadStatusUploadDone,
-			expected: tnet.ThreadSyncStatus{Initialized: true, UploadSuccess: true, DownloadSuccess: true},
+			name:     "peer-3",
+			expected: core.SyncSummary{InProgress: 1, Synced: 1, Failed: 0},
+			actual:   reg.PeerSummary(pid3),
 		},
 	}
 
 	for _, tt := range tests {
-		if tt.event > 0 {
-			reg.Apply(tid, tt.event)
+		if !equalSummary(tt.expected, tt.actual) {
+			t.Errorf("bad summary for %s, expected: %+v, actual: %+v",
+				tt.name, tt.expected, tt.actual)
 		}
-
-		if actual := reg.Get(tid); actual != tt.expected {
-			t.Errorf("%s, expected: %+v, actual: %+v", tt.desc, tt.expected, actual)
-		}
-	}
-
-	if total := reg.Total(); total != 1 {
-		t.Errorf("expected 1 thread to be tracked, got %d", total)
 	}
 }
-*/
+
+func runScenario1(reg *threadStatusRegistry, p1 peer.ID, t1 thread.ID) {
+	// Scenario:
+	//
+	// Peer starts syncing single thread, pulling
+	// succeeded, but push changes failed.
+	reg.Apply(p1, t1, threadStatusDownloadStarted)
+	reg.Apply(p1, t1, threadStatusUploadStarted)
+	reg.Apply(p1, t1, threadStatusDownloadDone)
+	reg.Apply(p1, t1, threadStatusUploadFailed)
+}
+
+func runScenario2(reg *threadStatusRegistry, p1, p2, p3 peer.ID, t1, t2 thread.ID) {
+	// Scenario:
+	//
+	// Peers 1 participate in thread #1 only, peer 2 - in thread #2 only,
+	// while peer 3 sync both threads.
+	// Peer 3 failed to upload changes, peer 1 is still downloading,
+	// peer 3 sync with thread #2 is in progress, as well. Remaining
+	// syncs successfully finished.
+	reg.Apply(p1, t1, threadStatusDownloadStarted)
+	reg.Apply(p3, t1, threadStatusDownloadStarted)
+	reg.Apply(p1, t1, threadStatusUploadStarted)
+	reg.Apply(p3, t1, threadStatusUploadStarted)
+	reg.Apply(p3, t1, threadStatusDownloadDone)
+	reg.Apply(p1, t1, threadStatusUploadDone)
+	reg.Apply(p3, t1, threadStatusUploadFailed)
+
+	reg.Apply(p2, t2, threadStatusDownloadStarted)
+	reg.Apply(p2, t2, threadStatusUploadStarted)
+	reg.Apply(p2, t2, threadStatusDownloadDone)
+	reg.Apply(p2, t2, threadStatusUploadDone)
+	reg.Apply(p3, t2, threadStatusDownloadStarted)
+}
+
+// just ignore sync time field
+func equalSummary(s1, s2 core.SyncSummary) bool {
+	return s1.InProgress == s2.InProgress &&
+		s1.Failed == s2.Failed &&
+		s1.Synced == s2.Synced
+}

@@ -33,6 +33,19 @@ const (
 	Failure
 )
 
+func (s SyncState) String() string {
+	switch s {
+	case InProgress:
+		return "in-progress"
+	case Failure:
+		return "failure"
+	case Success:
+		return "success"
+	default:
+		return "unknown"
+	}
+}
+
 type SyncInfo interface {
 	// Watch connectivity with threads participants.
 	Connectivity() (<-chan ConnectionStatus, error)
