@@ -107,9 +107,9 @@ type net struct {
 
 // Config is used to specify thread instance options.
 type Config struct {
-	Debug    bool
-	PubSub   bool
-	SyncPeer peer.ID
+	Debug        bool
+	PubSub       bool
+	SyncTracking bool
 }
 
 // NewNetwork creates an instance of net from the given host and thread store.
@@ -152,11 +152,9 @@ func NewNetwork(
 		return nil, err
 	}
 
-	if err := conf.SyncPeer.Validate(); err == nil {
+	if conf.SyncTracking {
 		t.connTrack = NewConnTracker(h.Network())
 		t.tStat = NewThreadStatusRegistry(t.connTrack.Track)
-		// ensure sync peer connectivity
-		h.ConnManager().Protect(conf.SyncPeer, "sync-peer")
 	}
 
 	listener, err := gostream.Listen(h, thread.Protocol)
