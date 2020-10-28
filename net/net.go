@@ -186,6 +186,10 @@ func (n *net) Close() (err error) {
 	}
 	n.rpc.GracefulStop()
 
+	if n.connTrack != nil {
+		n.connTrack.Close()
+	}
+
 	var errs []error
 	weakClose := func(name string, c interface{}) {
 		if cl, ok := c.(io.Closer); ok {
