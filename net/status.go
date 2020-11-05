@@ -22,7 +22,7 @@ type (
 
 	// Tracking of threads sync with peers
 	threadStatusRegistry struct {
-		peers     map[uint64][shards]*threadStatusShard
+		peers     map[peer.ID][shards]*threadStatusShard
 		onNewPeer []func(peer.ID)
 		mu        sync.RWMutex
 	}
@@ -55,7 +55,7 @@ func newPeerStatus() [shards]*threadStatusShard {
 
 func NewThreadStatusRegistry(onNewPeer ...func(pid peer.ID)) *threadStatusRegistry {
 	return &threadStatusRegistry{
-		peers:     make(map[uint64][shards]*threadStatusShard, 1),
+		peers:     make(map[peer.ID][shards]*threadStatusShard),
 		onNewPeer: onNewPeer,
 	}
 }
@@ -81,7 +81,12 @@ func (t *threadStatusRegistry) Status(tid thread.ID, pid peer.ID) tnet.SyncStatu
 	return shard.data[hash]
 }
 
-func (t *threadStatusRegistry) View(tid thread.ID) []tnet.SyncStatus {
+func (t *threadStatusRegistry) View(tid thread.ID) map[peer.ID]tnet.SyncStatus {
+	type peerStatus struct {
+		pid    peer.ID
+		status tnet.SyncStatus
+	}
+
 	var (
 		threadHash = t.hash(tid.Bytes())
 		shardIdx   = int(threadHash % shards)
@@ -89,37 +94,38 @@ func (t *threadStatusRegistry) View(tid thread.ID) []tnet.SyncStatus {
 
 	t.mu.RLock()
 	var (
-		numPeers = len(t.peers)
-		sp       = make([]*threadStatusShard, 0, numPeers)
+		numPeers     = len(t.peers)
+		threadShards = make(map[peer.ID]*threadStatusShard, numPeers)
 	)
-	for _, ss := range t.peers {
-		sp = append(sp, ss[shardIdx])
+	for pid, ss := range t.peers {
+		threadShards[pid] = ss[shardIdx]
 	}
 	t.mu.RUnlock()
 
 	var (
-		sink = make(chan tnet.SyncStatus, numPeers)
-		view = make([]tnet.SyncStatus, 0, numPeers)
+		sink = make(chan peerStatus, numPeers)
+		view = make(map[peer.ID]tnet.SyncStatus)
 		sema = make(chan struct{}, shards)
 	)
+	defer close(sink)
 
-	for i := 0; i < numPeers; i++ {
+	for pid, shard := range threadShards {
 		// limiting concurrency
 		sema <- struct{}{}
-		go func(shard *threadStatusShard) {
-			shard.Lock()
-			var status = shard.data[threadHash]
-			shard.Unlock()
-			sink <- status
+		go func(p peer.ID, sh *threadStatusShard) {
+			sh.Lock()
+			var status = sh.data[threadHash]
+			sh.Unlock()
+			sink <- peerStatus{pid: p, status: status}
 			<-sema
-		}(sp[i])
+		}(pid, shard)
 	}
 
-	// not all the peers are involved into a thread, so we
+	// not every peer is involved into a thread, so we
 	// should filter and collect non-empty statuses only
 	for i := 0; i < numPeers; i++ {
-		if status := <-sink; status.Up != tnet.Unknown || status.Down != tnet.Unknown {
-			view = append(view, status)
+		if ps := <-sink; ps.status.Up != tnet.Unknown || ps.status.Down != tnet.Unknown {
+			view[ps.pid] = ps.status
 		}
 	}
 
@@ -127,10 +133,8 @@ func (t *threadStatusRegistry) View(tid thread.ID) []tnet.SyncStatus {
 }
 
 func (t *threadStatusRegistry) PeerSummary(pid peer.ID) tnet.SyncSummary {
-	var peerHash = t.hash([]byte(pid))
-
 	t.mu.RLock()
-	ps, found := t.peers[peerHash]
+	ps, found := t.peers[pid]
 	t.mu.RUnlock()
 	if !found {
 		return tnet.SyncSummary{}
@@ -190,10 +194,8 @@ func (t *threadStatusRegistry) shard(
 	tid thread.ID,
 	update bool,
 ) (*threadStatusShard, uint64, bool) {
-	peerHash := t.hash([]byte(pid))
-
 	t.mu.RLock()
-	ps, found := t.peers[peerHash]
+	ps, found := t.peers[pid]
 	t.mu.RUnlock()
 
 	if !found {
@@ -203,8 +205,8 @@ func (t *threadStatusRegistry) shard(
 
 		ps = newPeerStatus()
 		t.mu.Lock()
-		if psExisting, ok := t.peers[peerHash]; !ok {
-			t.peers[peerHash] = ps
+		if psExisting, ok := t.peers[pid]; !ok {
+			t.peers[pid] = ps
 			for _, cb := range t.onNewPeer {
 				go cb(pid)
 			}

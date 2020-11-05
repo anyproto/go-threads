@@ -54,7 +54,7 @@ type SyncInfo interface {
 	Status(tid thread.ID, pid peer.ID) (SyncStatus, error)
 
 	// Status of thread sync with all involved peers.
-	View(id thread.ID) ([]SyncStatus, error)
+	View(id thread.ID) (map[peer.ID]SyncStatus, error)
 
 	// Get sync summary for all threads participants.
 	PeerSummary(id peer.ID) (SyncSummary, error)

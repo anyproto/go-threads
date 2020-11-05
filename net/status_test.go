@@ -73,10 +73,8 @@ func TestThreadStatusRegistry_View(t *testing.T) {
 		t.Errorf("incomplete view")
 	}
 
-	if !(view[0].Up == core.Success && view[0].Down == core.InProgress &&
-		view[1].Up == core.Failure && view[1].Down == core.Success) &&
-		!(view[0].Up == core.Failure && view[0].Down == core.Success &&
-			view[1].Up == core.Success && view[1].Down == core.InProgress) {
+	if view[pid1].Up != core.Success || view[pid1].Down != core.InProgress ||
+		view[pid3].Up != core.Failure || view[pid3].Down != core.Success {
 		t.Errorf("bad view: %+v", view)
 	}
 }

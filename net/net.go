@@ -1414,7 +1414,7 @@ func (n *net) Status(tid thread.ID, pid peer.ID) (core.SyncStatus, error) {
 	return n.tStat.Status(tid, pid), nil
 }
 
-func (n *net) View(tid thread.ID) ([]core.SyncStatus, error) {
+func (n *net) View(tid thread.ID) (map[peer.ID]core.SyncStatus, error) {
 	if n.tStat == nil {
 		return nil, ErrSyncTrackingDisabled
 	}
