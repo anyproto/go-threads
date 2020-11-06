@@ -14,7 +14,7 @@ import (
 
 /* Thread synchronization status */
 
-const shards = 16
+const shards = 8
 
 type (
 	// Event changing thread status
