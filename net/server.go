@@ -205,6 +205,12 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 		log.Debugf("sending %d records in log %s to %s", len(recs), lg.ID, pid)
 	}
 
+	if registry := s.net.tStat; registry != nil {
+		// if requester was able to receive our latest records its
+		// equivalent to successful push in the reverse direction
+		registry.Apply(pid, req.Body.ThreadID.ID, threadStatusUploadDone)
+	}
+
 	return pbrecs, nil
 }
 
