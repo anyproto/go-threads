@@ -8,6 +8,7 @@ import (
 	lnet "github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
 	ma "github.com/multiformats/go-multiaddr"
+	core "github.com/textileio/go-threads/core/logstore"
 	tnet "github.com/textileio/go-threads/core/net"
 	"github.com/textileio/go-threads/core/thread"
 )
@@ -22,6 +23,7 @@ type (
 
 	// Tracking of threads sync with peers
 	threadStatusRegistry struct {
+		syncBook  core.SyncBook
 		peers     map[peer.ID][shards]*threadStatusShard
 		onNewPeer []func(peer.ID)
 		mu        sync.RWMutex
@@ -53,11 +55,26 @@ func newPeerStatus() [shards]*threadStatusShard {
 	return ps
 }
 
-func NewThreadStatusRegistry(onNewPeer ...func(pid peer.ID)) *threadStatusRegistry {
-	return &threadStatusRegistry{
+func NewThreadStatusRegistry(
+	syncBook core.SyncBook,
+	onNewPeer ...func(pid peer.ID),
+) (*threadStatusRegistry, error) {
+	registry := &threadStatusRegistry{
 		peers:     make(map[peer.ID][shards]*threadStatusShard),
+		syncBook:  syncBook,
 		onNewPeer: onNewPeer,
 	}
+
+	if syncBook != nil {
+		// initialize registry from persistence layer
+		dump, err := syncBook.DumpSync()
+		if err != nil {
+			return nil, err
+		}
+		registry.initFromDump(dump)
+	}
+
+	return registry, nil
 }
 
 func (t *threadStatusRegistry) Apply(pid peer.ID, tid thread.ID, event threadStatusEvent) {
@@ -181,6 +198,16 @@ func (t *threadStatusRegistry) ThreadSummary(tid thread.ID) tnet.SyncSummary {
 	close(sink)
 
 	return t.summary(sink)
+}
+
+func (t *threadStatusRegistry) initFromDump(dump core.DumpSyncBook) {
+	for pid, ts := range dump.Data {
+		t.peers[pid] = newPeerStatus()
+		for tHash, s := range ts {
+			shard := int(tHash % shards)
+			t.peers[pid][shard].data[tHash] = s
+		}
+	}
 }
 
 func (t *threadStatusRegistry) hash(b []byte) uint64 {

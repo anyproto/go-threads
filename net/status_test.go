@@ -22,9 +22,12 @@ func TestThreadStatusRegistry_Status(t *testing.T) {
 				panic("unexpected peer")
 			}
 		}
-
-		reg = NewThreadStatusRegistry(connectivityCallback)
 	)
+
+	reg, err := NewThreadStatusRegistry(nil, connectivityCallback)
+	if err != nil {
+		t.Fatalf("thread status registry construction failed: %v", err)
+	}
 
 	status := reg.Status(tid, pid)
 	if newPeerDetected {
@@ -62,9 +65,12 @@ func TestThreadStatusRegistry_View(t *testing.T) {
 		pid3 = peer.ID("test-peer-3")
 		tid1 = thread.NewIDV1(thread.Raw, 24)
 		tid2 = thread.NewIDV1(thread.Raw, 24)
-
-		reg = NewThreadStatusRegistry()
 	)
+
+	reg, err := NewThreadStatusRegistry(nil)
+	if err != nil {
+		t.Fatalf("thread status registry construction failed: %v", err)
+	}
 
 	runScenario2(reg, pid1, pid2, pid3, tid1, tid2)
 
@@ -86,9 +92,12 @@ func TestThreadStatusRegistry_Summary(t *testing.T) {
 		pid3 = peer.ID("test-peer-3")
 		tid1 = thread.NewIDV1(thread.Raw, 24)
 		tid2 = thread.NewIDV1(thread.Raw, 24)
-
-		reg = NewThreadStatusRegistry()
 	)
+
+	reg, err := NewThreadStatusRegistry(nil)
+	if err != nil {
+		t.Fatalf("thread status registry construction failed: %v", err)
+	}
 
 	runScenario2(reg, pid1, pid2, pid3, tid1, tid2)
 
