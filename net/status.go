@@ -200,6 +200,29 @@ func (t *threadStatusRegistry) ThreadSummary(tid thread.ID) tnet.SyncSummary {
 	return t.summary(sink)
 }
 
+func (t *threadStatusRegistry) Close() error {
+	if t.syncBook == nil {
+		return nil
+	}
+
+	var syncData = make(map[peer.ID]map[uint64]tnet.SyncStatus)
+
+	t.mu.RLock()
+	for pid, ps := range t.peers {
+		syncData[pid] = make(map[uint64]tnet.SyncStatus)
+		for _, shard := range ps {
+			shard.Lock()
+			for tHash, status := range shard.data {
+				syncData[pid][tHash] = status
+			}
+			shard.Unlock()
+		}
+	}
+	t.mu.RUnlock()
+
+	return t.syncBook.RestoreSync(core.DumpSyncBook{Data: syncData})
+}
+
 func (t *threadStatusRegistry) initFromDump(dump core.DumpSyncBook) {
 	for pid, ts := range dump.Data {
 		t.peers[pid] = newPeerStatus()
