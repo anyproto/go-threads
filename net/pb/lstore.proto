@@ -8,34 +8,50 @@ option (gogoproto.populate_all) = true;
 
 // AddrBookRecord represents a record for a log in the address book.
 message AddrBookRecord {
-    // Thread ID.
-    bytes threadID = 1 [(gogoproto.customtype) = "ProtoThreadID"];
+  // Thread ID.
+  bytes threadID = 1 [(gogoproto.customtype) = "ProtoThreadID"];
 
-	// The peer ID.
-    bytes peerID = 2 [(gogoproto.customtype) = "ProtoPeerID"];    
+  // The peer ID.
+  bytes peerID = 2 [(gogoproto.customtype) = "ProtoPeerID"];
 
-	// The multiaddresses. This is a sorted list where element 0 expires the soonest.
-	repeated AddrEntry addrs = 3;
+  // The multiaddresses. This is a sorted list where element 0 expires the soonest.
+  repeated AddrEntry addrs = 3;
 
-	// AddrEntry represents a single multiaddress.
-	message AddrEntry {
-		bytes addr = 1 [(gogoproto.customtype) = "ProtoAddr"];
+  // AddrEntry represents a single multiaddress.
+  message AddrEntry {
+    bytes addr = 1 [(gogoproto.customtype) = "ProtoAddr"];
 
-		// The point in time when this address expires.
-		int64 expiry = 2;
+    // The point in time when this address expires.
+    int64 expiry = 2;
 
-		// The original TTL of this address.
-		int64 ttl = 3;
-	}
+    // The original TTL of this address.
+    int64 ttl = 3;
+  }
 }
 
 // HeadBookRecord represents the list of heads currently in a log
 message HeadBookRecord {
-	// List of current heads of a log.
-	repeated HeadEntry heads = 1;
+  // List of current heads of a log.
+  repeated HeadEntry heads = 1;
 
-	// HeadEntry represents a single cid.
-	message HeadEntry {
-		bytes cid = 1 [(gogoproto.customtype) = "ProtoCid"];
-	}
+  // HeadEntry represents a single cid.
+  message HeadEntry {
+    bytes cid = 1 [(gogoproto.customtype) = "ProtoCid"];
+  }
+}
+
+message SyncBookRecord {
+  // The peer ID.
+  bytes peerID = 1 [(gogoproto.customtype) = "ProtoPeerID"];
+
+  // The sync information for threads.
+  repeated SyncEntry entries = 2;
+
+  // SyncEntry represents sync information for some thread hash.
+  message SyncEntry {
+    uint64 tHash = 1;
+    uint32 upStatus = 2;
+    uint32 downStatus = 3;
+    int64 lastPull = 4;
+  }
 }
