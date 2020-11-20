@@ -124,7 +124,7 @@ func (t *threadStatusRegistry) View(tid thread.ID) map[peer.ID]tnet.SyncStatus {
 	// not every peer is involved into a thread, so we
 	// should filter and collect non-empty statuses only
 	for i := 0; i < numPeers; i++ {
-		if ps := <-sink; ps.status.Up != tnet.Unknown || ps.status.Down != tnet.Unknown {
+		if ps := <-sink; !zeroStatus(ps.status) {
 			view[ps.pid] = ps.status
 		}
 	}
@@ -266,6 +266,10 @@ func (t *threadStatusRegistry) summary(ss <-chan tnet.SyncStatus) tnet.SyncSumma
 	}
 
 	return sum
+}
+
+func zeroStatus(s tnet.SyncStatus) bool {
+	return s.Up == tnet.Unknown && s.Down == tnet.Unknown && s.LastPull == 0
 }
 
 /* Peer connectivity */
