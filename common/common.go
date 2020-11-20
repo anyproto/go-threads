@@ -99,8 +99,9 @@ func DefaultNetwork(repoPath string, opts ...NetOption) (NetBoostrapper, error) 
 
 	// Build a network
 	api, err := net.NewNetwork(ctx, h, lite.BlockStore(), lite, tstore, net.Config{
-		Debug:  config.Debug,
-		PubSub: config.PubSub,
+		Debug:        config.Debug,
+		PubSub:       config.PubSub,
+		SyncTracking: config.SyncTracking,
 	}, config.GRPCServerOptions, config.GRPCDialOptions)
 	if err != nil {
 		return nil, fin.Cleanup(err)
@@ -178,13 +179,21 @@ const (
 	LogstoreHybrid     LogstoreType = "hybrid"
 )
 
+type SyncTracking uint8
+
+const (
+	SyncTrackingDisabled SyncTracking = iota
+	SyncTrackingSession
+	SyncTrackingPersistent
+)
+
 type NetConfig struct {
 	HostAddr          ma.Multiaddr
 	ConnManager       cconnmgr.ConnManager
 	GRPCServerOptions []grpc.ServerOption
 	GRPCDialOptions   []grpc.DialOption
+	SyncTracking      SyncTracking
 	LSType            LogstoreType
-	SyncTracking      bool
 	PubSub            bool
 	Debug             bool
 }
@@ -240,9 +249,13 @@ func WithNetLogstore(lt LogstoreType) NetOption {
 	}
 }
 
-func WithNetSyncTracking() NetOption {
+func WithNetSyncTracking(persistent bool) NetOption {
 	return func(c *NetConfig) error {
-		c.SyncTracking = true
+		if persistent {
+			c.SyncTracking = SyncTrackingPersistent
+		} else {
+			c.SyncTracking = SyncTrackingSession
+		}
 		return nil
 	}
 }

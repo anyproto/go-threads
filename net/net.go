@@ -22,6 +22,7 @@ import (
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/textileio/go-threads/broadcast"
 	"github.com/textileio/go-threads/cbor"
+	"github.com/textileio/go-threads/common"
 	"github.com/textileio/go-threads/core/app"
 	lstore "github.com/textileio/go-threads/core/logstore"
 	core "github.com/textileio/go-threads/core/net"
@@ -107,9 +108,9 @@ type net struct {
 
 // Config is used to specify thread instance options.
 type Config struct {
-	Debug        bool
+	SyncTracking common.SyncTracking
 	PubSub       bool
-	SyncTracking bool
+	Debug        bool
 }
 
 // NewNetwork creates an instance of net from the given host and thread store.
@@ -152,9 +153,17 @@ func NewNetwork(
 		return nil, err
 	}
 
-	if conf.SyncTracking {
+	switch conf.SyncTracking {
+	case common.SyncTrackingSession:
 		t.connTrack = NewConnTracker(h.Network())
-		t.tStat = NewThreadStatusRegistry(t.connTrack.Track)
+		if t.tStat, err = NewThreadStatusRegistry(nil, t.connTrack.Track); err != nil {
+			return nil, fmt.Errorf("thread status registry init failed: %w", err)
+		}
+	case common.SyncTrackingPersistent:
+		t.connTrack = NewConnTracker(h.Network())
+		if t.tStat, err = NewThreadStatusRegistry(ls, t.connTrack.Track); err != nil {
+			return nil, fmt.Errorf("thread status registry init failed: %w", err)
+		}
 	}
 
 	listener, err := gostream.Listen(h, thread.Protocol)
@@ -188,6 +197,12 @@ func (n *net) Close() (err error) {
 
 	if n.connTrack != nil {
 		n.connTrack.Close()
+	}
+
+	if n.tStat != nil {
+		if err := n.tStat.Close(); err != nil {
+			log.Errorf("error closing thread status registry: %v", err)
+		}
 	}
 
 	var errs []error
