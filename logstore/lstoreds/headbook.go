@@ -183,7 +183,7 @@ func (hb *dsHeadBook) traverse(withHeads bool) (map[thread.ID]map[peer.ID][]cid.
 
 	for entry := range result.Next() {
 		kns := ds.RawKey(entry.Key).Namespaces()
-		if len(kns) < 3 {
+		if len(kns) < 4 {
 			return nil, fmt.Errorf("bad headbook key detected: %s", entry.Key)
 		}
 
