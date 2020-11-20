@@ -97,11 +97,27 @@ func DefaultNetwork(repoPath string, opts ...NetOption) (NetBoostrapper, error) 
 		return nil, fin.Cleanup(err)
 	}
 
+	var (
+		syncBook     core.SyncBook
+		syncTracking bool
+	)
+
+	switch config.SyncTracking {
+	case SyncTrackingDisabled:
+		syncBook = nil
+	case SyncTrackingSession:
+		syncTracking = true
+	case SyncTrackingPersistent:
+		syncBook = tstore
+		syncTracking = true
+	}
+
 	// Build a network
 	api, err := net.NewNetwork(ctx, h, lite.BlockStore(), lite, tstore, net.Config{
 		Debug:        config.Debug,
 		PubSub:       config.PubSub,
-		SyncTracking: config.SyncTracking,
+		SyncTracking: syncTracking,
+		SyncBook:     syncBook,
 	}, config.GRPCServerOptions, config.GRPCDialOptions)
 	if err != nil {
 		return nil, fin.Cleanup(err)

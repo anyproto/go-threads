@@ -22,7 +22,6 @@ import (
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/textileio/go-threads/broadcast"
 	"github.com/textileio/go-threads/cbor"
-	"github.com/textileio/go-threads/common"
 	"github.com/textileio/go-threads/core/app"
 	lstore "github.com/textileio/go-threads/core/logstore"
 	core "github.com/textileio/go-threads/core/net"
@@ -108,7 +107,8 @@ type net struct {
 
 // Config is used to specify thread instance options.
 type Config struct {
-	SyncTracking common.SyncTracking
+	SyncBook     lstore.SyncBook
+	SyncTracking bool
 	PubSub       bool
 	Debug        bool
 }
@@ -153,15 +153,9 @@ func NewNetwork(
 		return nil, err
 	}
 
-	switch conf.SyncTracking {
-	case common.SyncTrackingSession:
+	if conf.SyncTracking {
 		t.connTrack = NewConnTracker(h.Network())
-		if t.tStat, err = NewThreadStatusRegistry(nil, t.connTrack.Track); err != nil {
-			return nil, fmt.Errorf("thread status registry init failed: %w", err)
-		}
-	case common.SyncTrackingPersistent:
-		t.connTrack = NewConnTracker(h.Network())
-		if t.tStat, err = NewThreadStatusRegistry(ls, t.connTrack.Track); err != nil {
+		if t.tStat, err = NewThreadStatusRegistry(conf.SyncBook, t.connTrack.Track); err != nil {
 			return nil, fmt.Errorf("thread status registry init failed: %w", err)
 		}
 	}
