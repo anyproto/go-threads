@@ -19,6 +19,7 @@ const shards = 8
 
 type (
 	// Event changing thread status
+
 	threadStatusEvent uint8
 
 	// Tracking of threads sync with peers
