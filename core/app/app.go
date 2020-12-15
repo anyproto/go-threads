@@ -3,10 +3,10 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
-	"github.com/ipfs/go-ipld-format"
-	logging "github.com/ipfs/go-log"
+	format "github.com/ipfs/go-ipld-format"
 	"github.com/textileio/go-threads/broadcast"
 	"github.com/textileio/go-threads/core/net"
 	"github.com/textileio/go-threads/core/thread"
@@ -14,8 +14,6 @@ import (
 )
 
 var (
-	log = logging.Logger("app")
-
 	// ErrThreadInUse indicates an operation could not be completed because the
 	// thread is bound to an app.
 	ErrThreadInUse = errors.New("thread is in use")
@@ -126,7 +124,7 @@ type Connection func(context.Context, thread.ID) (<-chan net.ThreadRecord, error
 // NewConnector creates bidirectional connection between an app and a thread.
 func NewConnector(app App, net Net, tinfo thread.Info) (*Connector, error) {
 	if !tinfo.Key.CanRead() {
-		log.Fatalf("read key not found for thread %s", tinfo.ID)
+		return nil, fmt.Errorf("read key not found for thread %s", tinfo.ID)
 	}
 	return &Connector{
 		Net:       net,

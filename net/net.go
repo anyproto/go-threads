@@ -249,7 +249,11 @@ func (n *net) GetToken(ctx context.Context, identity thread.Identity) (tok threa
 	return thread.NewToken(n.getPrivKey(), key)
 }
 
-func (n *net) CreateThread(_ context.Context, id thread.ID, opts ...core.NewThreadOption) (info thread.Info, err error) {
+func (n *net) CreateThread(
+	_ context.Context,
+	id thread.ID,
+	opts ...core.NewThreadOption,
+) (info thread.Info, err error) {
 	args := &core.NewThreadOptions{}
 	for _, opt := range opts {
 		opt(args)
@@ -290,7 +294,11 @@ func (n *net) CreateThread(_ context.Context, id thread.ID, opts ...core.NewThre
 	return n.getThreadWithAddrs(id)
 }
 
-func (n *net) AddThread(ctx context.Context, addr ma.Multiaddr, opts ...core.NewThreadOption) (info thread.Info, err error) {
+func (n *net) AddThread(
+	ctx context.Context,
+	addr ma.Multiaddr,
+	opts ...core.NewThreadOption,
+) (info thread.Info, err error) {
 	args := &core.NewThreadOptions{}
 	for _, opt := range opts {
 		opt(args)
@@ -503,7 +511,12 @@ func (n *net) deleteThread(ctx context.Context, id thread.ID) error {
 	return n.store.DeleteThread(id) // Delete logstore keys, addresses, heads, and metadata
 }
 
-func (n *net) AddReplicator(ctx context.Context, id thread.ID, paddr ma.Multiaddr, opts ...core.ThreadOption) (pid peer.ID, err error) {
+func (n *net) AddReplicator(
+	ctx context.Context,
+	id thread.ID,
+	paddr ma.Multiaddr,
+	opts ...core.ThreadOption,
+) (pid peer.ID, err error) {
 	args := &core.ThreadOptions{}
 	for _, opt := range opts {
 		opt(args)
@@ -630,7 +643,12 @@ func getDialable(addr ma.Multiaddr) (ma.Multiaddr, error) {
 	return ma.NewMultiaddr(parts[0])
 }
 
-func (n *net) CreateRecord(ctx context.Context, id thread.ID, body format.Node, opts ...core.ThreadOption) (tr core.ThreadRecord, err error) {
+func (n *net) CreateRecord(
+	ctx context.Context,
+	id thread.ID,
+	body format.Node,
+	opts ...core.ThreadOption,
+) (tr core.ThreadRecord, err error) {
 	args := &core.ThreadOptions{}
 	for _, opt := range opts {
 		opt(args)
@@ -673,7 +691,13 @@ func (n *net) CreateRecord(ctx context.Context, id thread.ID, body format.Node, 
 	return tr, nil
 }
 
-func (n *net) AddRecord(ctx context.Context, id thread.ID, lid peer.ID, rec core.Record, opts ...core.ThreadOption) error {
+func (n *net) AddRecord(
+	ctx context.Context,
+	id thread.ID,
+	lid peer.ID,
+	rec core.Record,
+	opts ...core.ThreadOption,
+) error {
 	args := &core.ThreadOptions{}
 	for _, opt := range opts {
 		opt(args)
@@ -690,11 +714,9 @@ func (n *net) AddRecord(ctx context.Context, id thread.ID, lid peer.ID, rec core
 		return lstore.ErrLogNotFound
 	}
 
-	knownRecord, err := n.bstore.Has(rec.Cid())
-	if err != nil {
+	if knownRecord, err := n.isKnown(rec.Cid()); err != nil {
 		return err
-	}
-	if knownRecord {
+	} else if knownRecord {
 		return nil
 	}
 
@@ -707,7 +729,12 @@ func (n *net) AddRecord(ctx context.Context, id thread.ID, lid peer.ID, rec core
 	return n.server.pushRecord(ctx, id, lid, rec)
 }
 
-func (n *net) GetRecord(ctx context.Context, id thread.ID, rid cid.Cid, opts ...core.ThreadOption) (core.Record, error) {
+func (n *net) GetRecord(
+	ctx context.Context,
+	id thread.ID,
+	rid cid.Cid,
+	opts ...core.ThreadOption,
+) (core.Record, error) {
 	args := &core.ThreadOptions{}
 	for _, opt := range opts {
 		opt(args)
@@ -925,7 +952,7 @@ func (n *net) loadUnknownRecords(
 	last core.Record,
 ) ([]core.ThreadRecord, cid.Cid, error) {
 	// check if last record was already loaded and processed
-	if exist, err := n.bstore.Has(last.Cid()); err != nil {
+	if exist, err := n.isKnown(last.Cid()); err != nil {
 		return nil, cid.Undef, err
 	} else if exist || !last.Cid().Defined() {
 		return nil, cid.Undef, nil
@@ -1028,6 +1055,10 @@ func (n *net) loadUnknownRecords(
 	return tRecords, head, nil
 }
 
+func (n *net) isKnown(rec cid.Cid) (bool, error) {
+	return n.bstore.Has(rec)
+}
+
 func (n *net) currentHead(tid thread.ID, lid peer.ID) (cid.Cid, error) {
 	var head cid.Cid
 	heads, err := n.store.Heads(tid, lid)
@@ -1045,7 +1076,13 @@ func (n *net) currentHead(tid thread.ID, lid peer.ID) (cid.Cid, error) {
 }
 
 // newRecord creates a new record with the given body as a new event body.
-func (n *net) newRecord(ctx context.Context, id thread.ID, lg thread.LogInfo, body format.Node, pk thread.PubKey) (core.Record, error) {
+func (n *net) newRecord(
+	ctx context.Context,
+	id thread.ID,
+	lg thread.LogInfo,
+	body format.Node,
+	pk thread.PubKey,
+) (core.Record, error) {
 	if lg.PrivKey == nil {
 		return nil, fmt.Errorf("a private-key is required to create records")
 	}
@@ -1085,7 +1122,22 @@ func (n *net) getPrivKey() crypto.PrivKey {
 // offset but not farther than limit.
 // It is possible to reach limit before offset, meaning that the caller
 // will be responsible for the remaining traversal.
-func (n *net) getLocalRecords(ctx context.Context, id thread.ID, lid peer.ID, offset cid.Cid, limit int) ([]core.Record, error) {
+func (n *net) getLocalRecords(
+	ctx context.Context,
+	id thread.ID,
+	lid peer.ID,
+	offset cid.Cid,
+	limit int,
+) ([]core.Record, error) {
+	if offset != cid.Undef {
+		// ensure that we know about requested offset
+		if knownRecord, err := n.isKnown(offset); err != nil {
+			return nil, err
+		} else if !knownRecord {
+			return nil, nil
+		}
+	}
+
 	lg, err := n.store.GetLog(id, lid)
 	if err != nil {
 		return nil, err
@@ -1268,7 +1320,13 @@ func (n *net) getOrCreateLog(id thread.ID, identity thread.PubKey) (info thread.
 
 // createExternalLogIfNotExist creates an external log if doesn't exists. The created
 // log will have cid.Undef as the current head. Is thread-safe.
-func (n *net) createExternalLogIfNotExist(tid thread.ID, lid peer.ID, pubKey crypto.PubKey, privKey crypto.PrivKey, addrs []ma.Multiaddr) error {
+func (n *net) createExternalLogIfNotExist(
+	tid thread.ID,
+	lid peer.ID,
+	pubKey crypto.PubKey,
+	privKey crypto.PrivKey,
+	addrs []ma.Multiaddr,
+) error {
 	ts := n.semaphores.Get(semaThreadUpdate(tid))
 	ts.Acquire()
 	defer ts.Release()
@@ -1388,24 +1446,21 @@ func (n *net) threadOffsets(tid thread.ID) (map[peer.ID]cid.Cid, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	var offsets = make(map[peer.ID]cid.Cid, len(info.Logs))
 	for _, lg := range info.Logs {
 		var has bool
 		if lg.Head.Defined() {
-			has, err = n.bstore.Has(lg.Head)
+			has, err = n.isKnown(lg.Head)
 			if err != nil {
 				return nil, err
 			}
 		}
-
 		if has {
 			offsets[lg.ID] = lg.Head
 		} else {
 			offsets[lg.ID] = cid.Undef
 		}
 	}
-
 	return offsets, nil
 }
 
