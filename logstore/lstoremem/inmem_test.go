@@ -38,6 +38,12 @@ func TestInMemoryMetadataBook(t *testing.T) {
 	})
 }
 
+func TestInMemorySyncBook(t *testing.T) {
+	pt.SyncBookTest(t, func() (core.SyncBook, func()) {
+		return m.NewSyncBook(), nil
+	})
+}
+
 func BenchmarkInMemoryLogstore(b *testing.B) {
 	pt.BenchmarkLogstore(b, func() (core.Logstore, func()) {
 		return m.NewLogstore(), nil

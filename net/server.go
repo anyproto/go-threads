@@ -213,6 +213,12 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 		log.Debugf("sending %d records in log %s to %s", len(recs), lg.ID, pid)
 	}
 
+	if registry := s.net.tStat; registry != nil {
+		// if requester was able to receive our latest records its
+		// equivalent to successful push in the reverse direction
+		registry.Apply(pid, req.Body.ThreadID.ID, threadStatusUploadDone)
+	}
+
 	return pbrecs, nil
 }
 
@@ -223,6 +229,13 @@ func (s *server) PushRecord(ctx context.Context, req *pb.PushRecordRequest) (*pb
 		return nil, err
 	}
 	log.Debugf("received push record request from %s", pid)
+
+	updateRegistry := func(status threadStatusEvent){
+		if registry := s.net.tStat; registry != nil {
+			// if we have successfully received and proceed(downloaded all records) push request that means that we've pulled from this node
+			registry.Apply(pid, req.Body.ThreadID.ID, status)
+		}
+	}
 
 	// A log is required to accept new records
 	logpk, err := s.net.store.PubKey(req.Body.ThreadID.ID, req.Body.LogID.ID)
@@ -244,15 +257,20 @@ func (s *server) PushRecord(ctx context.Context, req *pb.PushRecordRequest) (*pb
 	if knownRecord, err := s.net.isKnown(rec.Cid()); err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	} else if knownRecord {
+		updateRegistry(threadStatusDownloadDone)
 		return &pb.PushRecordReply{}, nil
 	}
 
 	if err = rec.Verify(logpk); err != nil {
 		return nil, status.Error(codes.Unauthenticated, err.Error())
 	}
+	updateRegistry(threadStatusDownloadStarted)
 	if err = s.net.PutRecord(ctx, req.Body.ThreadID.ID, req.Body.LogID.ID, rec); err != nil {
+		updateRegistry(threadStatusDownloadFailed)
 		return nil, status.Error(codes.Internal, err.Error())
 	}
+
+	updateRegistry(threadStatusDownloadDone)
 	return &pb.PushRecordReply{}, nil
 }
 

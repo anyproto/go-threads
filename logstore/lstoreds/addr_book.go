@@ -537,7 +537,7 @@ func (ab *DsAddrBook) traverse(withAddrs bool) (map[thread.ID]map[peer.ID]*pb.Ad
 
 	for entry := range result.Next() {
 		kns := ds.RawKey(entry.Key).Namespaces()
-		if len(kns) < 3 {
+		if len(kns) < 4 {
 			return nil, fmt.Errorf("bad addressbook key detected: %s", entry.Key)
 		}
 

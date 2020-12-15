@@ -80,6 +80,17 @@ func TestHybridMetadataBook(t *testing.T) {
 	}
 }
 
+func TestHybridSyncBook(t *testing.T) {
+	for psName, psF := range persist {
+		for msName, msF := range inMem {
+			t.Run(psName+"+"+msName, func(t *testing.T) {
+				t.Parallel()
+				pt.SyncBookTest(t, adapterSyncBook(logstoreFactory(t, psF, msF)))
+			})
+		}
+	}
+}
+
 /* store factories */
 
 func logstoreFactory(tb testing.TB, persistF, memF storeFactory) pt.LogstoreFactory {
@@ -149,4 +160,8 @@ func adapterHeadBook(f pt.LogstoreFactory) pt.HeadBookFactory {
 
 func adapterMetaBook(f pt.LogstoreFactory) pt.MetadataBookFactory {
 	return func() (core.ThreadMetadata, func()) { return f() }
+}
+
+func adapterSyncBook(f pt.LogstoreFactory) pt.SyncBookFactory {
+	return func() (core.SyncBook, func()) { return f() }
 }

@@ -59,6 +59,8 @@ var (
 
 	// tokenChallengeTimeout is the duration of time given to an identity to complete a token challenge.
 	tokenChallengeTimeout = time.Minute
+
+	ErrSyncTrackingDisabled = errors.New("synchronization tracking disabled")
 )
 
 var (
@@ -85,8 +87,10 @@ type net struct {
 	format.DAGService
 	host   host.Host
 	bstore bs.Blockstore
+	store  lstore.Logstore
 
-	store lstore.Logstore
+	tStat     *threadStatusRegistry
+	connTrack *connTracker
 
 	rpc    *grpc.Server
 	server *server
@@ -103,8 +107,10 @@ type net struct {
 
 // Config is used to specify thread instance options.
 type Config struct {
-	Debug  bool
-	PubSub bool
+	SyncBook     lstore.SyncBook
+	SyncTracking bool
+	PubSub       bool
+	Debug        bool
 }
 
 // NewNetwork creates an instance of net from the given host and thread store.
@@ -147,6 +153,13 @@ func NewNetwork(
 		return nil, err
 	}
 
+	if conf.SyncTracking {
+		t.connTrack = NewConnTracker(h.Network())
+		if t.tStat, err = NewThreadStatusRegistry(conf.SyncBook, t.connTrack.Track); err != nil {
+			return nil, fmt.Errorf("thread status registry init failed: %w", err)
+		}
+	}
+
 	listener, err := gostream.Listen(h, thread.Protocol)
 	if err != nil {
 		return nil, err
@@ -175,6 +188,16 @@ func (n *net) Close() (err error) {
 		}
 	}
 	n.rpc.GracefulStop()
+
+	if n.connTrack != nil {
+		n.connTrack.Close()
+	}
+
+	if n.tStat != nil {
+		if err := n.tStat.Close(); err != nil {
+			log.Errorf("error closing thread status registry: %v", err)
+		}
+	}
 
 	var errs []error
 	weakClose := func(name string, c interface{}) {
@@ -1439,4 +1462,39 @@ func (n *net) threadOffsets(tid thread.ID) (map[peer.ID]cid.Cid, error) {
 		}
 	}
 	return offsets, nil
+}
+
+func (n *net) Connectivity() (<-chan core.ConnectionStatus, error) {
+	if n.connTrack == nil {
+		return nil, ErrSyncTrackingDisabled
+	}
+	return n.connTrack.Notify(), nil
+}
+
+func (n *net) Status(tid thread.ID, pid peer.ID) (core.SyncStatus, error) {
+	if n.tStat == nil {
+		return core.SyncStatus{}, ErrSyncTrackingDisabled
+	}
+	return n.tStat.Status(tid, pid), nil
+}
+
+func (n *net) View(tid thread.ID) (map[peer.ID]core.SyncStatus, error) {
+	if n.tStat == nil {
+		return nil, ErrSyncTrackingDisabled
+	}
+	return n.tStat.View(tid), nil
+}
+
+func (n *net) PeerSummary(pid peer.ID) (core.SyncSummary, error) {
+	if n.tStat == nil {
+		return core.SyncSummary{}, ErrSyncTrackingDisabled
+	}
+	return n.tStat.PeerSummary(pid), nil
+}
+
+func (n *net) ThreadSummary(tid thread.ID) (core.SyncSummary, error) {
+	if n.tStat == nil {
+		return core.SyncSummary{}, ErrSyncTrackingDisabled
+	}
+	return n.tStat.ThreadSummary(tid), nil
 }

@@ -6,16 +6,17 @@ import (
 	"io"
 
 	"github.com/ipfs/go-cid"
-	"github.com/ipfs/go-ipld-format"
+	format "github.com/ipfs/go-ipld-format"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/textileio/go-threads/core/thread"
 )
 
-// Net wraps API with a DAGService and libp2p host.
+// Net wraps API with a DAGService, libp2p host and sync tracking.
 type Net interface {
 	API
+	SyncInfo
 
 	// DAGService provides a DAG API to the network.
 	format.DAGService

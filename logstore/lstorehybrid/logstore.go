@@ -369,3 +369,14 @@ func (l *lstore) RestoreHeads(dump core.DumpHeadBook) error {
 	}
 	return l.inMem.RestoreHeads(dump)
 }
+
+func (l *lstore) DumpSync() (core.DumpSyncBook, error) {
+	return l.inMem.DumpSync()
+}
+
+func (l *lstore) RestoreSync(dump core.DumpSyncBook) error {
+	if err := l.persist.RestoreSync(dump); err != nil {
+		return err
+	}
+	return l.inMem.RestoreSync(dump)
+}
