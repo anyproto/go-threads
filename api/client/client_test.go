@@ -7,18 +7,20 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"math/rand"
 	"net"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/libp2p/go-libp2p-core/crypto"
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/phayes/freeport"
+	mongods "github.com/textileio/go-ds-mongo"
+	"github.com/textileio/go-ds-mongo/test"
 	"github.com/textileio/go-threads/api"
 	. "github.com/textileio/go-threads/api/client"
 	pb "github.com/textileio/go-threads/api/pb"
@@ -28,6 +30,13 @@ import (
 	"github.com/textileio/go-threads/util"
 	"google.golang.org/grpc"
 )
+
+func TestMain(m *testing.M) {
+	cleanup := test.StartMongoDB()
+	exitVal := m.Run()
+	cleanup()
+	os.Exit(exitVal)
+}
 
 func TestClient_GetToken(t *testing.T) {
 	t.Parallel()
@@ -52,6 +61,16 @@ func TestClient_NewDB(t *testing.T) {
 	client, done := setup(t)
 	defer done()
 
+	t.Run("test new db with missing read key", func(t *testing.T) {
+		if err := client.NewDB(
+			context.Background(),
+			thread.NewIDV1(thread.Raw, 32),
+			db.WithNewManagedKey(thread.NewRandomServiceKey()),
+		); err == nil || !strings.Contains(err.Error(), db.ErrThreadReadKeyRequired.Error()) {
+			t.Fatal("new db without read key should fail")
+		}
+	})
+
 	t.Run("test new db", func(t *testing.T) {
 		if err := client.NewDB(context.Background(), thread.NewIDV1(thread.Raw, 32)); err != nil {
 			t.Fatalf("failed to create new db: %v", err)
@@ -71,6 +90,16 @@ func TestClient_NewDBFromAddr(t *testing.T) {
 	checkErr(t, err)
 	info, err := client1.GetDBInfo(context.Background(), id)
 	checkErr(t, err)
+
+	t.Run("test new db with missing read key", func(t *testing.T) {
+		if err = client2.NewDBFromAddr(
+			context.Background(),
+			info.Addrs[0],
+			thread.NewServiceKey(info.Key.Service()),
+		); err == nil || !strings.Contains(err.Error(), db.ErrThreadReadKeyRequired.Error()) {
+			t.Fatal("new db from addr without read key should fail")
+		}
+	})
 
 	t.Run("test new db from address", func(t *testing.T) {
 		if err = client2.NewDBFromAddr(context.Background(), info.Addrs[0], info.Key); err != nil {
@@ -161,7 +190,11 @@ func TestClient_NewCollection(t *testing.T) {
 		id := thread.NewIDV1(thread.Raw, 32)
 		err := client.NewDB(context.Background(), id)
 		checkErr(t, err)
-		err = client.NewCollection(context.Background(), id, db.CollectionConfig{Name: collectionName, Schema: util.SchemaFromSchemaString(schema)})
+		err = client.NewCollection(
+			context.Background(),
+			id,
+			db.CollectionConfig{Name: collectionName, Schema: util.SchemaFromSchemaString(schema)},
+		)
 		if err != nil {
 			t.Fatalf("failed to add new collection: %v", err)
 		}
@@ -176,7 +209,11 @@ func TestClient_UpdateCollection(t *testing.T) {
 	id := thread.NewIDV1(thread.Raw, 32)
 	err := client.NewDB(context.Background(), id)
 	checkErr(t, err)
-	err = client.NewCollection(context.Background(), id, db.CollectionConfig{Name: collectionName, Schema: util.SchemaFromSchemaString(schema)})
+	err = client.NewCollection(
+		context.Background(),
+		id,
+		db.CollectionConfig{Name: collectionName, Schema: util.SchemaFromSchemaString(schema)},
+	)
 	checkErr(t, err)
 
 	t.Run("test update collection", func(t *testing.T) {
@@ -205,7 +242,11 @@ func TestClient_DeleteCollection(t *testing.T) {
 		id := thread.NewIDV1(thread.Raw, 32)
 		err := client.NewDB(context.Background(), id)
 		checkErr(t, err)
-		err = client.NewCollection(context.Background(), id, db.CollectionConfig{Name: collectionName, Schema: util.SchemaFromSchemaString(schema)})
+		err = client.NewCollection(
+			context.Background(),
+			id,
+			db.CollectionConfig{Name: collectionName, Schema: util.SchemaFromSchemaString(schema)},
+		)
 		checkErr(t, err)
 
 		err = client.DeleteCollection(context.Background(), id, collectionName)
@@ -327,7 +368,11 @@ func TestClient_Create(t *testing.T) {
 		id := thread.NewIDV1(thread.Raw, 32)
 		err := client.NewDB(context.Background(), id)
 		checkErr(t, err)
-		err = client.NewCollection(context.Background(), id, db.CollectionConfig{Name: collectionName, Schema: util.SchemaFromSchemaString(schema)})
+		err = client.NewCollection(
+			context.Background(),
+			id,
+			db.CollectionConfig{Name: collectionName, Schema: util.SchemaFromSchemaString(schema)},
+		)
 		checkErr(t, err)
 
 		_, err = client.Create(context.Background(), id, collectionName, Instances{createPerson()})
@@ -340,7 +385,11 @@ func TestClient_Create(t *testing.T) {
 		id := thread.NewIDV1(thread.Raw, 32)
 		err := client.NewDB(context.Background(), id)
 		checkErr(t, err)
-		err = client.NewCollection(context.Background(), id, db.CollectionConfig{Name: collectionName, Schema: util.SchemaFromSchemaString(schema)})
+		err = client.NewCollection(
+			context.Background(),
+			id,
+			db.CollectionConfig{Name: collectionName, Schema: util.SchemaFromSchemaString(schema)},
+		)
 		checkErr(t, err)
 
 		ids, err := client.Create(context.Background(), id, collectionName, Instances{&PersonWithoutID{
@@ -413,7 +462,11 @@ func TestClient_Save(t *testing.T) {
 		id := thread.NewIDV1(thread.Raw, 32)
 		err := client.NewDB(context.Background(), id)
 		checkErr(t, err)
-		err = client.NewCollection(context.Background(), id, db.CollectionConfig{Name: collectionName, Schema: util.SchemaFromSchemaString(schema)})
+		err = client.NewCollection(
+			context.Background(),
+			id,
+			db.CollectionConfig{Name: collectionName, Schema: util.SchemaFromSchemaString(schema)},
+		)
 		checkErr(t, err)
 
 		person := createPerson()
@@ -439,7 +492,11 @@ func TestClient_Delete(t *testing.T) {
 		id := thread.NewIDV1(thread.Raw, 32)
 		err := client.NewDB(context.Background(), id)
 		checkErr(t, err)
-		err = client.NewCollection(context.Background(), id, db.CollectionConfig{Name: collectionName, Schema: util.SchemaFromSchemaString(schema)})
+		err = client.NewCollection(
+			context.Background(),
+			id,
+			db.CollectionConfig{Name: collectionName, Schema: util.SchemaFromSchemaString(schema)},
+		)
 		checkErr(t, err)
 
 		person := createPerson()
@@ -465,7 +522,11 @@ func TestClient_Has(t *testing.T) {
 		id := thread.NewIDV1(thread.Raw, 32)
 		err := client.NewDB(context.Background(), id)
 		checkErr(t, err)
-		err = client.NewCollection(context.Background(), id, db.CollectionConfig{Name: collectionName, Schema: util.SchemaFromSchemaString(schema)})
+		err = client.NewCollection(
+			context.Background(),
+			id,
+			db.CollectionConfig{Name: collectionName, Schema: util.SchemaFromSchemaString(schema)},
+		)
 		checkErr(t, err)
 
 		person := createPerson()
@@ -494,7 +555,11 @@ func TestClient_Find(t *testing.T) {
 		id := thread.NewIDV1(thread.Raw, 32)
 		err := client.NewDB(context.Background(), id)
 		checkErr(t, err)
-		err = client.NewCollection(context.Background(), id, db.CollectionConfig{Name: collectionName, Schema: util.SchemaFromSchemaString(schema)})
+		err = client.NewCollection(
+			context.Background(),
+			id,
+			db.CollectionConfig{Name: collectionName, Schema: util.SchemaFromSchemaString(schema)},
+		)
 		checkErr(t, err)
 
 		person := createPerson()
@@ -570,7 +635,11 @@ func TestClient_FindByID(t *testing.T) {
 		id := thread.NewIDV1(thread.Raw, 32)
 		err := client.NewDB(context.Background(), id)
 		checkErr(t, err)
-		err = client.NewCollection(context.Background(), id, db.CollectionConfig{Name: collectionName, Schema: util.SchemaFromSchemaString(schema)})
+		err = client.NewCollection(
+			context.Background(),
+			id,
+			db.CollectionConfig{Name: collectionName, Schema: util.SchemaFromSchemaString(schema)},
+		)
 		checkErr(t, err)
 
 		person := createPerson()
@@ -600,7 +669,11 @@ func TestClient_ReadTransaction(t *testing.T) {
 		id := thread.NewIDV1(thread.Raw, 32)
 		err := client.NewDB(context.Background(), id)
 		checkErr(t, err)
-		err = client.NewCollection(context.Background(), id, db.CollectionConfig{Name: collectionName, Schema: util.SchemaFromSchemaString(schema)})
+		err = client.NewCollection(
+			context.Background(),
+			id,
+			db.CollectionConfig{Name: collectionName, Schema: util.SchemaFromSchemaString(schema)},
+		)
 		checkErr(t, err)
 
 		person := createPerson()
@@ -667,7 +740,11 @@ func TestClient_WriteTransaction(t *testing.T) {
 		id := thread.NewIDV1(thread.Raw, 32)
 		err := client.NewDB(context.Background(), id)
 		checkErr(t, err)
-		err = client.NewCollection(context.Background(), id, db.CollectionConfig{Name: collectionName, Schema: util.SchemaFromSchemaString(schema)})
+		err = client.NewCollection(
+			context.Background(),
+			id,
+			db.CollectionConfig{Name: collectionName, Schema: util.SchemaFromSchemaString(schema)},
+		)
 		checkErr(t, err)
 
 		existingPerson := createPerson()
@@ -753,7 +830,11 @@ func TestClient_WriteTransaction(t *testing.T) {
 		id := thread.NewIDV1(thread.Raw, 32)
 		err := client.NewDB(context.Background(), id)
 		checkErr(t, err)
-		err = client.NewCollection(context.Background(), id, db.CollectionConfig{Name: collectionName, Schema: util.SchemaFromSchemaString(schema)})
+		err = client.NewCollection(
+			context.Background(),
+			id,
+			db.CollectionConfig{Name: collectionName, Schema: util.SchemaFromSchemaString(schema)},
+		)
 		checkErr(t, err)
 
 		existingPerson := createPerson()
@@ -802,7 +883,11 @@ func TestClient_Listen(t *testing.T) {
 		id := thread.NewIDV1(thread.Raw, 32)
 		err := client.NewDB(context.Background(), id)
 		checkErr(t, err)
-		err = client.NewCollection(context.Background(), id, db.CollectionConfig{Name: collectionName, Schema: util.SchemaFromSchemaString(schema)})
+		err = client.NewCollection(
+			context.Background(),
+			id,
+			db.CollectionConfig{Name: collectionName, Schema: util.SchemaFromSchemaString(schema)},
+		)
 		checkErr(t, err)
 
 		person := createPerson()
@@ -910,22 +995,27 @@ func setup(t *testing.T) (*Client, func()) {
 
 func makeServer(t *testing.T) (ma.Multiaddr, func()) {
 	time.Sleep(time.Second * time.Duration(rand.Intn(5)))
-	dir, err := ioutil.TempDir("", "")
-	if err != nil {
-		t.Fatal(err)
-	}
 	n, err := common.DefaultNetwork(
-		dir,
+		common.WithNetMongoPersistence(test.MongoUri, util.MakeToken(12)),
 		common.WithNetHostAddr(util.FreeLocalAddr()),
 		common.WithNetPubSub(true),
-		common.WithNetDebug(true))
+		common.WithNetDebug(true),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	n.Bootstrap(util.DefaultBoostrapPeers())
-	service, err := api.NewService(n, api.Config{
-		RepoPath: dir,
-		Debug:    true,
+	ctx, cancel := context.WithCancel(context.Background())
+	store, err := mongods.New(
+		ctx,
+		test.MongoUri,
+		util.MakeToken(12),
+		mongods.WithCollName("eventstore"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := api.NewService(store, n, api.Config{
+		Debug: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -957,7 +1047,10 @@ func makeServer(t *testing.T) (ma.Multiaddr, func()) {
 		if err := n.Close(); err != nil {
 			t.Fatal(err)
 		}
-		_ = os.RemoveAll(dir)
+		if err := store.Close(); err != nil {
+			t.Fatal(err)
+		}
+		cancel()
 	}
 }
 

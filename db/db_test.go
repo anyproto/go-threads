@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ipfs/go-ipld-format"
+	ds "github.com/ipfs/go-datastore"
+	format "github.com/ipfs/go-ipld-format"
 	"github.com/multiformats/go-multiaddr"
-	ds "github.com/textileio/go-datastore"
 	"github.com/textileio/go-threads/common"
 	"github.com/textileio/go-threads/core/app"
 	core "github.com/textileio/go-threads/core/db"
@@ -29,12 +29,20 @@ func TestE2EWithThreads(t *testing.T) {
 	checkErr(t, err)
 	defer os.RemoveAll(tmpDir1)
 
-	n1, err := common.DefaultNetwork(tmpDir1, common.WithNetDebug(true), common.WithNetHostAddr(util.FreeLocalAddr()))
+	n1, err := common.DefaultNetwork(
+		common.WithNetBadgerPersistence(tmpDir1),
+		common.WithNetHostAddr(util.FreeLocalAddr()),
+		common.WithNetDebug(true),
+	)
 	checkErr(t, err)
 	defer n1.Close()
 
+	store, err := util.NewBadgerDatastore(tmpDir1, "eventstore", false)
+	checkErr(t, err)
+	defer store.Close()
+
 	id1 := thread.NewIDV1(thread.Raw, 32)
-	d1, err := NewDB(context.Background(), n1, id1, WithNewRepoPath(tmpDir1))
+	d1, err := NewDB(context.Background(), store, n1, id1)
 	checkErr(t, err)
 	defer d1.Close()
 	c1, err := d1.NewCollection(CollectionConfig{
@@ -47,7 +55,8 @@ func TestE2EWithThreads(t *testing.T) {
 	checkErr(t, err)
 	dummyJSON = util.SetJSONID(res, dummyJSON)
 	dummyJSON = util.SetJSONProperty("Counter", 42, dummyJSON)
-	checkErr(t, c1.Save(dummyJSON))
+	err = c1.Save(dummyJSON)
+	checkErr(t, err)
 
 	// Make sure the thread can't be deleted directly
 	err = n1.DeleteThread(context.Background(), id1)
@@ -68,7 +77,11 @@ func TestE2EWithThreads(t *testing.T) {
 	tmpDir2, err := ioutil.TempDir("", "")
 	checkErr(t, err)
 	defer os.RemoveAll(tmpDir2)
-	n2, err := common.DefaultNetwork(tmpDir2, common.WithNetDebug(true), common.WithNetHostAddr(util.FreeLocalAddr()))
+	n2, err := common.DefaultNetwork(
+		common.WithNetBadgerPersistence(tmpDir2),
+		common.WithNetHostAddr(util.FreeLocalAddr()),
+		common.WithNetDebug(true),
+	)
 	checkErr(t, err)
 	defer n2.Close()
 
@@ -78,7 +91,19 @@ func TestE2EWithThreads(t *testing.T) {
 		Name:   "dummy",
 		Schema: util.SchemaFromInstance(&dummy{}, false),
 	}
-	d2, err := NewDBFromAddr(context.Background(), n2, addr, ti.Key, WithNewRepoPath(tmpDir2), WithNewCollections(cc))
+
+	store2, err := util.NewBadgerDatastore(tmpDir2, "eventstore", false)
+	checkErr(t, err)
+	defer store2.Close()
+
+	d2, err := NewDBFromAddr(
+		context.Background(),
+		store2,
+		n2,
+		addr,
+		ti.Key,
+		WithNewCollections(cc),
+	)
 	checkErr(t, err)
 	defer d2.Close()
 	c2 := d1.GetCollection("dummy")
@@ -106,12 +131,20 @@ func TestMissingCollection(t *testing.T) {
 	checkErr(t, err)
 	defer os.RemoveAll(tmpDir)
 
-	n, err := common.DefaultNetwork(tmpDir, common.WithNetDebug(true), common.WithNetHostAddr(util.FreeLocalAddr()))
+	n, err := common.DefaultNetwork(
+		common.WithNetBadgerPersistence(tmpDir),
+		common.WithNetHostAddr(util.FreeLocalAddr()),
+		common.WithNetDebug(true),
+	)
 	checkErr(t, err)
 	defer n.Close()
 
+	store, err := util.NewBadgerDatastore(tmpDir, "eventstore", false)
+	checkErr(t, err)
+	defer store.Close()
+
 	id := thread.NewIDV1(thread.Raw, 32)
-	db, err := NewDB(context.Background(), n, id, WithNewRepoPath(tmpDir))
+	db, err := NewDB(context.Background(), store, n, id)
 	checkErr(t, err)
 	defer db.Close()
 	c, err := db.NewCollection(CollectionConfig{
@@ -135,12 +168,20 @@ func TestWithNewName(t *testing.T) {
 	checkErr(t, err)
 	defer os.RemoveAll(tmpDir)
 
-	n, err := common.DefaultNetwork(tmpDir, common.WithNetDebug(true), common.WithNetHostAddr(util.FreeLocalAddr()))
+	n, err := common.DefaultNetwork(
+		common.WithNetBadgerPersistence(tmpDir),
+		common.WithNetHostAddr(util.FreeLocalAddr()),
+		common.WithNetDebug(true),
+	)
 	checkErr(t, err)
+
+	store, err := util.NewBadgerDatastore(tmpDir, "eventstore", false)
+	checkErr(t, err)
+	defer store.Close()
 
 	name := "my-db"
 	id := thread.NewIDV1(thread.Raw, 32)
-	d, err := NewDB(context.Background(), n, id, WithNewRepoPath(tmpDir), WithNewName(name))
+	d, err := NewDB(context.Background(), store, n, id, WithNewName(name))
 	checkErr(t, err)
 	if d.name != name {
 		t.Fatalf("expected name %s, got %s", name, d.name)
@@ -154,11 +195,15 @@ func TestWithNewName(t *testing.T) {
 	checkErr(t, d.Close())
 
 	time.Sleep(time.Second * 3)
-	n, err = common.DefaultNetwork(tmpDir, common.WithNetDebug(true), common.WithNetHostAddr(util.FreeLocalAddr()))
+	n, err = common.DefaultNetwork(
+		common.WithNetBadgerPersistence(tmpDir),
+		common.WithNetHostAddr(util.FreeLocalAddr()),
+		common.WithNetDebug(true),
+	)
 	checkErr(t, err)
 	defer n.Close()
 	defer d.Close()
-	d, err = NewDB(context.Background(), n, id, WithNewRepoPath(tmpDir), WithNewThreadKey(info.Key))
+	d, err = NewDB(context.Background(), store, n, id, WithNewKey(info.Key))
 	checkErr(t, err)
 	if d.name != name {
 		t.Fatalf("expected name %s, got %s", name, d.name)
@@ -171,12 +216,20 @@ func TestWithNewEventCodec(t *testing.T) {
 	checkErr(t, err)
 	defer os.RemoveAll(tmpDir)
 
-	n, err := common.DefaultNetwork(tmpDir, common.WithNetDebug(true), common.WithNetHostAddr(util.FreeLocalAddr()))
+	n, err := common.DefaultNetwork(
+		common.WithNetBadgerPersistence(tmpDir),
+		common.WithNetHostAddr(util.FreeLocalAddr()),
+		common.WithNetDebug(true),
+	)
 	checkErr(t, err)
+
+	store, err := util.NewBadgerDatastore(tmpDir, "eventstore", false)
+	checkErr(t, err)
+	defer store.Close()
 
 	ec := &mockEventCodec{}
 	id := thread.NewIDV1(thread.Raw, 32)
-	d, err := NewDB(context.Background(), n, id, WithNewRepoPath(tmpDir), WithNewEventCodec(ec))
+	d, err := NewDB(context.Background(), store, n, id, WithNewEventCodec(ec))
 	checkErr(t, err)
 
 	m, err := d.NewCollection(CollectionConfig{
@@ -199,10 +252,14 @@ func TestWithNewEventCodec(t *testing.T) {
 	checkErr(t, d.Close())
 
 	time.Sleep(time.Second * 3)
-	n, err = common.DefaultNetwork(tmpDir, common.WithNetDebug(true), common.WithNetHostAddr(util.FreeLocalAddr()))
+	n, err = common.DefaultNetwork(
+		common.WithNetBadgerPersistence(tmpDir),
+		common.WithNetHostAddr(util.FreeLocalAddr()),
+		common.WithNetDebug(true),
+	)
 	checkErr(t, err)
 	defer n.Close()
-	d, err = NewDB(context.Background(), n, id, WithNewRepoPath(tmpDir), WithNewEventCodec(ec), WithNewThreadKey(info.Key))
+	d, err = NewDB(context.Background(), store, n, id, WithNewEventCodec(ec), WithNewKey(info.Key))
 	checkErr(t, err)
 	checkErr(t, d.Close())
 }
@@ -292,7 +349,11 @@ func TestListeners(t *testing.T) {
 	})
 	t.Run("AnyCollection1OrDeleteCollection2Events", func(t *testing.T) {
 		t.Parallel()
-		actions := runListenersComplexUseCase(t, ListenOption{Collection: "Collection1"}, ListenOption{Collection: "Collection2", Type: ListenDelete})
+		actions := runListenersComplexUseCase(
+			t,
+			ListenOption{Collection: "Collection1"},
+			ListenOption{Collection: "Collection2", Type: ListenDelete},
+		)
 		expected := []Action{
 			{Collection: "Collection1", Type: ActionSave, ID: "id-i1"},
 			{Collection: "Collection1", Type: ActionCreate, ID: "id-i2"},
@@ -366,7 +427,8 @@ func runListenersComplexUseCase(t *testing.T, los ...ListenOption) []Action {
 
 	// Collection1 Save i1
 	i1 = util.SetJSONProperty("Name", "Textile0", i1)
-	checkErr(t, c1.Save(i1))
+	err = c1.Save(i1)
+	checkErr(t, err)
 
 	// Collection1 Create i2
 	i2 := util.JSONFromInstance(dummy{ID: "id-i2", Name: "Textile2"})
@@ -390,7 +452,8 @@ func runListenersComplexUseCase(t *testing.T, los ...ListenOption) []Action {
 	// Collection2 Save j1
 	j1 = util.SetJSONProperty("Counter", -1, j1)
 	j1 = util.SetJSONProperty("Name", "Textile33", j1)
-	checkErr(t, c2.Save(j1))
+	err = c2.Save(j1)
+	checkErr(t, err)
 
 	checkErr(t, c1.Delete(i1Ids))
 
@@ -429,7 +492,12 @@ type mockEventCodec struct {
 
 var _ core.EventCodec = (*mockEventCodec)(nil)
 
-func (dec *mockEventCodec) Reduce([]core.Event, ds.TxnDatastore, ds.Key, core.IndexFunc) ([]core.ReduceAction, error) {
+func (dec *mockEventCodec) Reduce(
+	[]core.Event,
+	ds.TxnDatastore,
+	ds.Key,
+	core.IndexFunc,
+) ([]core.ReduceAction, error) {
 	dec.called = true
 	return nil, nil
 }

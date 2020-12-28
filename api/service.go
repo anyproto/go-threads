@@ -9,6 +9,7 @@ import (
 
 	"github.com/alecthomas/jsonschema"
 	logging "github.com/ipfs/go-log"
+	"github.com/libp2p/go-libp2p-core/crypto"
 	ma "github.com/multiformats/go-multiaddr"
 	pb "github.com/textileio/go-threads/api/pb"
 	"github.com/textileio/go-threads/core/app"
@@ -16,6 +17,7 @@ import (
 	lstore "github.com/textileio/go-threads/core/logstore"
 	"github.com/textileio/go-threads/core/thread"
 	"github.com/textileio/go-threads/db"
+	kt "github.com/textileio/go-threads/db/keytransform"
 	"github.com/textileio/go-threads/util"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -30,15 +32,14 @@ type Service struct {
 	manager *db.Manager
 }
 
-// Config specifies server settings.
+// Config specifies service settings.
 type Config struct {
-	RepoPath string
-	Debug    bool
+	Debug bool
 }
 
 // NewService starts and returns a new service with the given network.
 // The network is *not* managed by the server.
-func NewService(network app.Net, conf Config) (*Service, error) {
+func NewService(store kt.TxnDatastoreExtended, network app.Net, conf Config) (*Service, error) {
 	var err error
 	if conf.Debug {
 		err = util.SetLogLevels(map[string]logging.LogLevel{
@@ -49,7 +50,7 @@ func NewService(network app.Net, conf Config) (*Service, error) {
 		}
 	}
 
-	manager, err := db.NewManager(network, db.WithNewRepoPath(conf.RepoPath), db.WithNewDebug(conf.Debug))
+	manager, err := db.NewManager(store, network, db.WithNewDebug(conf.Debug))
 	if err != nil {
 		return nil, err
 	}
@@ -176,12 +177,26 @@ func (s *Service) NewDB(ctx context.Context, req *pb.NewDBRequest) (*pb.NewDBRep
 	if err != nil {
 		return nil, err
 	}
+	var key thread.Key
+	if req.Key != nil {
+		key, err = thread.KeyFromBytes(req.Key)
+		if err != nil {
+			return nil, status.Error(codes.InvalidArgument, err.Error())
+		}
+	}
+	logKey, err := logKeyFromBytes(req.LogKey)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
 	if _, err = s.manager.NewDB(
 		ctx,
 		id,
+		db.WithNewManagedKey(key),
+		db.WithNewManagedLogKey(logKey),
 		db.WithNewManagedName(req.Name),
+		db.WithNewManagedCollections(collections...),
 		db.WithNewManagedToken(token),
-		db.WithNewManagedCollections(collections...)); err != nil {
+	); err != nil {
 		return nil, err
 	}
 	return &pb.NewDBReply{}, nil
@@ -210,17 +225,37 @@ func (s *Service) NewDBFromAddr(ctx context.Context, req *pb.NewDBFromAddrReques
 	if err != nil {
 		return nil, err
 	}
+	logKey, err := logKeyFromBytes(req.LogKey)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
 	if _, err = s.manager.NewDBFromAddr(
 		ctx,
 		addr,
 		key,
+		db.WithNewManagedLogKey(logKey),
 		db.WithNewManagedName(req.Name),
-		db.WithNewManagedToken(token),
 		db.WithNewManagedCollections(collections...),
-		db.WithNewManagedBackfillBlock(req.Block)); err != nil {
+		db.WithNewManagedBackfillBlock(req.Block),
+		db.WithNewManagedToken(token),
+	); err != nil {
 		return nil, err
 	}
 	return &pb.NewDBReply{}, nil
+}
+
+func logKeyFromBytes(logKey []byte) (lk crypto.Key, err error) {
+	if logKey == nil {
+		return nil, nil
+	}
+	lk, err = crypto.UnmarshalPrivateKey(logKey)
+	if err != nil {
+		lk, err = crypto.UnmarshalPublicKey(logKey)
+		if err != nil {
+			return nil, errors.New("invalid log-key")
+		}
+	}
+	return lk, nil
 }
 
 func collectionConfigFromPb(pbc *pb.CollectionConfig) (db.CollectionConfig, error) {

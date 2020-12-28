@@ -1,81 +1,35 @@
 package db
 
 import (
-	"os"
-	"path/filepath"
-
-	"github.com/dgraph-io/badger/options"
 	"github.com/libp2p/go-libp2p-core/crypto"
-	ds "github.com/textileio/go-datastore"
-	badger "github.com/textileio/go-ds-badger"
 	core "github.com/textileio/go-threads/core/db"
 	"github.com/textileio/go-threads/core/thread"
 	"github.com/textileio/go-threads/jsonpatcher"
-)
-
-const (
-	defaultDatastorePath = "eventstore"
 )
 
 func newDefaultEventCodec() core.EventCodec {
 	return jsonpatcher.New()
 }
 
-func newDefaultDatastore(repoPath string, lowMem bool) (ds.TxnDatastore, error) {
-	path := filepath.Join(repoPath, defaultDatastorePath)
-	if err := os.MkdirAll(path, os.ModePerm); err != nil {
-		return nil, err
-	}
-	opts := badger.DefaultOptions
-	if lowMem {
-		opts.TableLoadingMode = options.FileIO
-	}
-	return badger.NewDatastore(path, &opts)
-}
-
 // NewOptions defines options for creating a new db.
 type NewOptions struct {
 	Name        string
-	RepoPath    string
-	Token       thread.Token
-	Datastore   ds.TxnDatastore
+	Key         thread.Key
+	LogKey      crypto.Key
 	Collections []CollectionConfig
 	Block       bool
 	EventCodec  core.EventCodec
-	LowMem      bool
+	Token       thread.Token
 	Debug       bool
-	ThreadKey   thread.Key
-	LogKey      crypto.Key
 }
 
 // NewOption specifies a new db option.
 type NewOption func(*NewOptions)
 
-// WithNewName sets the db name.
-func WithNewName(name string) NewOption {
+// WithNewKey provides control over thread keys to use with a db.
+func WithNewKey(key thread.Key) NewOption {
 	return func(o *NewOptions) {
-		o.Name = name
-	}
-}
-
-// WithNewRepoPath sets the repo path.
-func WithNewRepoPath(path string) NewOption {
-	return func(o *NewOptions) {
-		o.RepoPath = path
-	}
-}
-
-// WithNewToken provides authorization for interacting with a db.
-func WithNewToken(t thread.Token) NewOption {
-	return func(o *NewOptions) {
-		o.Token = t
-	}
-}
-
-// WithNewThreadKey provides control over thread keys to use with a db.
-func WithNewThreadKey(key thread.Key) NewOption {
-	return func(o *NewOptions) {
-		o.ThreadKey = key
+		o.Key = key
 	}
 }
 
@@ -86,6 +40,13 @@ func WithNewThreadKey(key thread.Key) NewOption {
 func WithNewLogKey(key crypto.Key) NewOption {
 	return func(o *NewOptions) {
 		o.LogKey = key
+	}
+}
+
+// WithNewName sets the db name.
+func WithNewName(name string) NewOption {
+	return func(o *NewOptions) {
+		o.Name = name
 	}
 }
 
@@ -115,10 +76,10 @@ func WithNewEventCodec(ec core.EventCodec) NewOption {
 	}
 }
 
-// WithNewLowMem specifies whether or not to use low memory settings.
-func WithNewLowMem(low bool) NewOption {
+// WithNewToken provides authorization for interacting with a db.
+func WithNewToken(t thread.Token) NewOption {
 	return func(o *NewOptions) {
-		o.LowMem = low
+		o.Token = t
 	}
 }
 
@@ -162,11 +123,11 @@ func WithTxnToken(t thread.Token) TxnOption {
 // NewManagedOptions defines options for creating a new managed db.
 type NewManagedOptions struct {
 	Name        string
+	Key         thread.Key
+	LogKey      crypto.Key
 	Token       thread.Token
 	Collections []CollectionConfig
 	Block       bool
-	ThreadKey   thread.Key
-	LogKey      crypto.Key
 }
 
 // NewManagedOption specifies a new managed db option.
@@ -186,10 +147,10 @@ func WithNewManagedToken(t thread.Token) NewManagedOption {
 	}
 }
 
-// WithNewManagedThreadKey provides control over thread keys to use with a managed db.
-func WithNewManagedThreadKey(key thread.Key) NewManagedOption {
+// WithNewManagedKey provides control over thread keys to use with a managed db.
+func WithNewManagedKey(key thread.Key) NewManagedOption {
 	return func(o *NewManagedOptions) {
-		o.ThreadKey = key
+		o.Key = key
 	}
 }
 
