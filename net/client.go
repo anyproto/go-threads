@@ -35,6 +35,8 @@ var (
 
 // getLogs in a thread.
 func (s *server) getLogs(ctx context.Context, id thread.ID, pid peer.ID) ([]thread.LogInfo, error) {
+	log := log.With("thread", id.String()).With("peer", pid.String())
+
 	sk, err := s.net.store.ServiceKey(id)
 	if err != nil {
 		return nil, err
@@ -85,6 +87,8 @@ func (s *server) getLogs(ctx context.Context, id thread.ID, pid peer.ID) ([]thre
 
 // pushLog to a peer.
 func (s *server) pushLog(ctx context.Context, id thread.ID, lg thread.LogInfo, pid peer.ID, sk *sym.Key, rk *sym.Key) error {
+	log := log.With("thread", id.String()).With("log", lg.ID).With("peer", pid.String())
+
 	body := &pb.PushLogRequest_Body{
 		ThreadID: &pb.ProtoThreadID{ID: id},
 		Log:      logToProto(lg),
@@ -107,7 +111,7 @@ func (s *server) pushLog(ctx context.Context, id thread.ID, lg thread.LogInfo, p
 		Body: body,
 	}
 
-	log.Debugf("pushing log %s to %s...", lg.ID, pid)
+	log.Debugf("pushing log %s in thread %s to %s...", lg.ID, id.String(), pid)
 
 	client, err := s.dial(pid)
 	if err != nil {
@@ -129,6 +133,8 @@ func (s *server) getRecords(
 	offsets map[peer.ID]cid.Cid,
 	limit int,
 ) (map[peer.ID][]core.Record, error) {
+	log := log.With("thread", tid.String())
+
 	sk, err := s.net.store.ServiceKey(tid)
 	if err != nil {
 		return nil, err
@@ -200,8 +206,7 @@ func (s *server) getRecords(
 				registry.Apply(pid, tid, threadStatusDownloadStarted)
 				defer func() { registry.Apply(pid, tid, final) }()
 			}
-
-			log.Debugf("getting records from %s...", pid)
+			log.With("peer", pid.String()).Debugf("getting records from %s...", pid)
 
 			client, err := s.dial(pid)
 			if err != nil {
@@ -212,13 +217,13 @@ func (s *server) getRecords(
 			defer cancel()
 			reply, err := client.GetRecords(cctx, req)
 			if err != nil {
-				log.Warnf("get records from %s failed: %s", pid, err)
+				log.With("peer", pid.String()).Warnf("get records from %s failed: %s", pid, err)
 				return nil
 			}
 
 			for _, l := range reply.Logs {
 				var logID = l.LogID.ID
-				log.Debugf("received %d records in log %s from %s", len(l.Records), logID, pid)
+				log.With("peer", pid.String()).With("log", logID.String()).Debugf("received %d records in log %s from %s", len(l.Records), logID, pid)
 
 				if l.Log != nil && len(l.Log.Addrs) > 0 {
 					if err = s.net.store.AddAddrs(tid, logID, addrsFromProto(l.Log.Addrs), pstore.PermanentAddrTTL); err != nil {
@@ -270,6 +275,7 @@ func (s *server) getRecords(
 // pushRecord to log addresses and thread topic.
 func (s *server) pushRecord(ctx context.Context, tid thread.ID, lid peer.ID, rec core.Record) error {
 	// Collect known writers
+	log := log.With("thread", tid.String()).With("log", lid.String())
 	addrs := make([]ma.Multiaddr, 0)
 	info, err := s.net.store.GetThread(tid)
 	if err != nil {
@@ -323,7 +329,6 @@ func (s *server) pushRecord(ctx context.Context, tid thread.ID, lid peer.ID, rec
 			}
 			cctx, cancel := context.WithTimeout(context.Background(), PushTimeout)
 			defer cancel()
-
 			if _, err = client.PushRecord(cctx, req); err != nil {
 				if status.Convert(err).Code() == codes.NotFound { // Send the missing log
 					var logInfo thread.LogInfo
@@ -333,25 +338,16 @@ func (s *server) pushRecord(ctx context.Context, tid thread.ID, lid peer.ID, rec
 							break
 						}
 					}
-
-					if !logInfo.Head.Defined() {
-						return fmt.Errorf("cannot push missing log to %s: local head undefined", pid)
-					}
-
 					if err := s.pushLog(ctx, tid, logInfo, pid, nil, nil); err != nil {
 						log.Warnf("push missing log to %s failed: %s", pid, err)
 						return nil
 					}
-
 					final = threadStatusUploadDone
 					return nil
 				}
-
 				log.Warnf("push record to %s failed: %s", pid, err)
 				return nil
 			}
-
-			final = threadStatusUploadDone
 			return nil
 		})
 	}

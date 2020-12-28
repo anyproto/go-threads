@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/gogo/status"
@@ -88,7 +89,9 @@ func (s *server) GetLogs(_ context.Context, req *pb.GetLogsRequest) (*pb.GetLogs
 	if err != nil {
 		return nil, err
 	}
-	log.Debugf("received get logs request from %s", pid)
+	log.With("thread", req.Body.ThreadID.String()).
+		With("peer", pid.String()).
+		Debugf("received get logs request from %s", pid)
 
 	pblgs := &pb.GetLogsReply{}
 	if err := s.checkServiceKey(req.Body.ThreadID.ID, req.Body.ServiceKey); err != nil {
@@ -117,7 +120,10 @@ func (s *server) PushLog(_ context.Context, req *pb.PushLogRequest) (*pb.PushLog
 	if err != nil {
 		return nil, err
 	}
-	log.Debugf("received push log request from %s", pid)
+	log.With("peer", pid.String()).
+		With("thread", req.Body.ThreadID.String()).
+		With("log", req.Body.Log.ID.String()).
+		Debugf("received push log request from %s: thread %s log %s head %s", pid, req.Body.ThreadID.String(), req.Body.Log.Head.String(), req.Body.Log.Head.Cid.String())
 
 	// Pick up missing keys
 	info, err := s.net.store.GetThread(req.Body.ThreadID.ID)
@@ -156,7 +162,9 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 	if err != nil {
 		return nil, err
 	}
-	log.Debugf("received get records request from %s", pid)
+	log := log.With("peer", pid.String()).
+		With("thread", req.Body.ThreadID.String())
+	log.Debugf("received get records request from %s: thread %s", pid, req.Body.ThreadID.String())
 
 	var pbrecs = &pb.GetRecordsReply{}
 	if err := s.checkServiceKey(req.Body.ThreadID.ID, req.Body.ServiceKey); err != nil {
@@ -179,6 +187,8 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 		return nil, err
 	}
 	pbrecs.Logs = make([]*pb.GetRecordsReply_LogEntry, len(info.Logs))
+	ctx, cancel := context.WithTimeout(ctx, time.Second*30)
+	defer cancel()
 
 	for i, lg := range info.Logs {
 		var offset cid.Cid
@@ -210,7 +220,7 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 		}
 		pbrecs.Logs[i] = entry
 
-		log.Debugf("sending %d records in log %s to %s", len(recs), lg.ID, pid)
+		log.Debugf("sending %d records in thread %s log %s to %s", len(recs), info.ID.String(), lg.ID, pid)
 	}
 
 	if registry := s.net.tStat; registry != nil {
@@ -228,7 +238,10 @@ func (s *server) PushRecord(ctx context.Context, req *pb.PushRecordRequest) (*pb
 	if err != nil {
 		return nil, err
 	}
-	log.Debugf("received push record request from %s", pid)
+	log.With("peer", pid.String()).
+		With("log", req.Body.LogID.String()).
+		With("thread", req.Body.ThreadID.String()).
+		Debugf("received push record request from %s: thread %s", pid, req.Body.ThreadID.String())
 
 	updateRegistry := func(status threadStatusEvent){
 		if registry := s.net.tStat; registry != nil {
