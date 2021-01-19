@@ -24,10 +24,10 @@ type (
 
 	// Tracking of threads sync with peers
 	threadStatusRegistry struct {
-		syncBook  core.SyncBook
-		peers     map[peer.ID][shards]*threadStatusShard
-		onNewPeer []func(peer.ID)
-		mu        sync.RWMutex
+		syncBook     core.SyncBook
+		peers        map[peer.ID][shards]*threadStatusShard
+		newPeerHooks []func(peer.ID)
+		mu           sync.RWMutex
 	}
 
 	// Sharded thread sync information
@@ -61,9 +61,9 @@ func NewThreadStatusRegistry(
 	onNewPeer ...func(pid peer.ID),
 ) (*threadStatusRegistry, error) {
 	registry := &threadStatusRegistry{
-		peers:     make(map[peer.ID][shards]*threadStatusShard),
-		syncBook:  syncBook,
-		onNewPeer: onNewPeer,
+		peers:        make(map[peer.ID][shards]*threadStatusShard),
+		syncBook:     syncBook,
+		newPeerHooks: onNewPeer,
 	}
 
 	if syncBook != nil {
@@ -231,6 +231,13 @@ func (t *threadStatusRegistry) initFromDump(dump core.DumpSyncBook) {
 			shard := int(tHash % shards)
 			t.peers[pid][shard].data[tHash] = s
 		}
+		t.runHooks(pid)
+	}
+}
+
+func (t *threadStatusRegistry) runHooks(pid peer.ID) {
+	for _, cb := range t.newPeerHooks {
+		go cb(pid)
 	}
 }
 
@@ -258,10 +265,7 @@ func (t *threadStatusRegistry) shard(
 		t.mu.Lock()
 		if psExisting, ok := t.peers[pid]; !ok {
 			t.peers[pid] = ps
-			for _, cb := range t.onNewPeer {
-				go cb(pid)
-			}
-
+			t.runHooks(pid)
 		} else {
 			// was already created by another process
 			ps = psExisting
