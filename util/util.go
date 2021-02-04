@@ -1,15 +1,19 @@
 package util
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/alecthomas/jsonschema"
 	"github.com/dgraph-io/badger/options"
 	ipfslite "github.com/hsanjuan/ipfs-lite"
+	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p-core/peer"
 	ma "github.com/multiformats/go-multiaddr"
@@ -195,4 +199,46 @@ func MakeToken(n int) string {
 		panic(err)
 	}
 	return encoded
+}
+
+type LogHead struct {
+	LogID peer.ID
+	Head  cid.Cid
+}
+
+func ComputeHeadsEdge(hs []LogHead) uint64 {
+	// sort heads for deterministic edge computation
+	sort.Slice(hs, func(i, j int) bool {
+		if hs[i].LogID == hs[j].LogID {
+			return hs[i].Head.KeyString() < hs[j].Head.KeyString()
+		}
+		return hs[i].LogID < hs[j].LogID
+	})
+	hasher := fnv.New64a()
+	for i := 0; i < len(hs); i++ {
+		_, _ = hasher.Write([]byte(hs[i].LogID))
+		_, _ = hasher.Write(hs[i].Head.Bytes())
+	}
+	return hasher.Sum64()
+}
+
+type PeerAddr struct {
+	PeerID peer.ID
+	Addr   ma.Multiaddr
+}
+
+func ComputeAddrsEdge(as []PeerAddr) uint64 {
+	// sort peer addresses for deterministic edge computation
+	sort.Slice(as, func(i, j int) bool {
+		if as[i].PeerID == as[j].PeerID {
+			return bytes.Compare(as[i].Addr.Bytes(), as[i].Addr.Bytes()) < 0
+		}
+		return as[i].PeerID < as[j].PeerID
+	})
+	hasher := fnv.New64a()
+	for i := 0; i < len(as); i++ {
+		_, _ = hasher.Write([]byte(as[i].PeerID))
+		_, _ = hasher.Write(as[i].Addr.Bytes())
+	}
+	return hasher.Sum64()
 }
