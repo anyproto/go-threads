@@ -225,6 +225,12 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 		log.Debugf("sending %d records in log %s to %s", len(recs), lg.ID, pid)
 	}
 
+	if registry := s.net.tStat; registry != nil {
+		// if requester was able to receive our latest records its
+		// equivalent to successful push in the reverse direction
+		registry.Apply(pid, req.Body.ThreadID.ID, threadStatusUploadDone)
+	}
+
 	return pbrecs, nil
 }
 
@@ -236,8 +242,9 @@ func (s *server) PushRecord(ctx context.Context, req *pb.PushRecordRequest) (*pb
 	}
 	log.Debugf("received push record request from %s", pid)
 
+	var tid = req.Body.ThreadID.ID
 	// A log is required to accept new records
-	logpk, err := s.net.store.PubKey(req.Body.ThreadID.ID, req.Body.LogID.ID)
+	logpk, err := s.net.store.PubKey(tid, req.Body.LogID.ID)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -245,7 +252,7 @@ func (s *server) PushRecord(ctx context.Context, req *pb.PushRecordRequest) (*pb
 		return nil, status.Error(codes.NotFound, "log not found")
 	}
 
-	key, err := s.net.store.ServiceKey(req.Body.ThreadID.ID)
+	key, err := s.net.store.ServiceKey(tid)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -256,15 +263,28 @@ func (s *server) PushRecord(ctx context.Context, req *pb.PushRecordRequest) (*pb
 	if knownRecord, err := s.net.isKnown(rec.Cid()); err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	} else if knownRecord {
+		if registry := s.net.tStat; registry != nil {
+			registry.Apply(pid, tid, threadStatusDownloadDone)
+		}
 		return &pb.PushRecordReply{}, nil
 	}
 
 	if err = rec.Verify(logpk); err != nil {
 		return nil, status.Error(codes.Unauthenticated, err.Error())
 	}
-	if err = s.net.PutRecord(ctx, req.Body.ThreadID.ID, req.Body.LogID.ID, rec); err != nil {
+
+	var final = threadStatusDownloadFailed
+	if registry := s.net.tStat; registry != nil {
+		// receiving and successful processing records is equivalent to pulling from the peer
+		registry.Apply(pid, tid, threadStatusDownloadStarted)
+		defer func() { registry.Apply(pid, tid, final) }()
+	}
+
+	if err = s.net.PutRecord(ctx, tid, req.Body.LogID.ID, rec); err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
+
+	final = threadStatusDownloadDone
 	return &pb.PushRecordReply{}, nil
 }
 

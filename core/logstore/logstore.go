@@ -9,6 +9,7 @@ import (
 	"github.com/libp2p/go-libp2p-core/crypto"
 	"github.com/libp2p/go-libp2p-core/peer"
 	ma "github.com/multiformats/go-multiaddr"
+	"github.com/textileio/go-threads/core/net"
 	"github.com/textileio/go-threads/core/thread"
 	sym "github.com/textileio/go-threads/crypto/symmetric"
 )
@@ -39,6 +40,7 @@ type Logstore interface {
 	KeyBook
 	AddrBook
 	HeadBook
+	SyncBook
 
 	// Threads returns all threads in the store.
 	Threads() (thread.IDSlice, error)
@@ -218,6 +220,14 @@ type HeadBook interface {
 	RestoreHeads(DumpHeadBook) error
 }
 
+type SyncBook interface {
+	// DumpSync packs all stored thread sync information.
+	DumpSync() (DumpSyncBook, error)
+
+	// RestoreSync restores thread sync information from the dump.
+	RestoreSync(status DumpSyncBook) error
+}
+
 type (
 	DumpHeadBook struct {
 		Data map[thread.ID]map[peer.ID][]cid.Cid
@@ -253,5 +263,9 @@ type (
 			String map[MetadataKey]string
 			Bytes  map[MetadataKey][]byte
 		}
+	}
+
+	DumpSyncBook struct {
+		Data map[peer.ID]map[uint64]net.SyncStatus
 	}
 )

@@ -29,6 +29,11 @@ import (
 	"google.golang.org/grpc"
 )
 
+const (
+	defaultIpfsLitePath = "ipfslite"
+	defaultLogstorePath = "logstore"
+)
+
 // DefaultNetwork is a boostrapable default Net with sane defaults.
 type NetBoostrapper interface {
 	app.Net
@@ -96,10 +101,27 @@ func DefaultNetwork(opts ...NetOption) (NetBoostrapper, error) {
 		return nil, fin.Cleanup(err)
 	}
 
+	var (
+		syncBook     core.SyncBook
+		syncTracking bool
+	)
+
+	switch config.SyncTracking {
+	case SyncTrackingDisabled:
+		syncBook = nil
+	case SyncTrackingSession:
+		syncTracking = true
+	case SyncTrackingPersistent:
+		syncBook = tstore
+		syncTracking = true
+	}
+
 	// Build a network
 	api, err := net.NewNetwork(ctx, h, lite.BlockStore(), lite, tstore, net.Config{
-		Debug:  config.Debug,
-		PubSub: config.PubSub,
+		Debug:        config.Debug,
+		PubSub:       config.PubSub,
+		SyncTracking: syncTracking,
+		SyncBook:     syncBook,
 	}, config.GRPCServerOptions, config.GRPCDialOptions)
 	if err != nil {
 		return nil, fin.Cleanup(err)
@@ -264,11 +286,20 @@ const (
 	LogstoreHybrid     LogstoreType = "hybrid"
 )
 
+type SyncTracking uint8
+
+const (
+	SyncTrackingDisabled SyncTracking = iota
+	SyncTrackingSession
+	SyncTrackingPersistent
+)
+
 type NetConfig struct {
 	HostAddr          ma.Multiaddr
 	ConnManager       cconnmgr.ConnManager
 	GRPCServerOptions []grpc.ServerOption
 	GRPCDialOptions   []grpc.DialOption
+	SyncTracking      SyncTracking
 	LSType            LogstoreType
 	BadgerRepoPath    string
 	MongoUri          string
@@ -339,6 +370,17 @@ func WithNetMongoPersistence(uri, db string) NetOption {
 	return func(c *NetConfig) error {
 		c.MongoUri = uri
 		c.MongoDB = db
+		return nil
+	}
+}
+
+func WithNetSyncTracking(persistent bool) NetOption {
+	return func(c *NetConfig) error {
+		if persistent {
+			c.SyncTracking = SyncTrackingPersistent
+		} else {
+			c.SyncTracking = SyncTrackingSession
+		}
 		return nil
 	}
 }

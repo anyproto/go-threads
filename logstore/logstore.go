@@ -24,15 +24,23 @@ type logstore struct {
 	core.AddrBook
 	core.ThreadMetadata
 	core.HeadBook
+	core.SyncBook
 }
 
 // NewLogstore creates a new log store from the given books.
-func NewLogstore(kb core.KeyBook, ab core.AddrBook, hb core.HeadBook, md core.ThreadMetadata) core.Logstore {
+func NewLogstore(
+	kb core.KeyBook,
+	ab core.AddrBook,
+	hb core.HeadBook,
+	md core.ThreadMetadata,
+	sb core.SyncBook,
+) core.Logstore {
 	return &logstore{
 		KeyBook:        kb,
 		AddrBook:       ab,
 		HeadBook:       hb,
 		ThreadMetadata: md,
+		SyncBook:       sb,
 	}
 }
 

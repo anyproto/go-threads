@@ -219,6 +219,13 @@ func (s *server) getRecordsFromPeer(
 	serviceKey *sym.Key,
 ) (map[peer.ID][]core.Record, error) {
 	log.Debugf("getting records from %s...", pid)
+
+	var final = threadStatusDownloadFailed
+	if registry := s.net.tStat; registry != nil {
+		registry.Apply(pid, tid, threadStatusDownloadStarted)
+		defer func() { registry.Apply(pid, tid, final) }()
+	}
+
 	client, err := s.dial(pid)
 	if err != nil {
 		return nil, fmt.Errorf("dial %s failed: %w", pid, err)
@@ -271,14 +278,15 @@ func (s *server) getRecordsFromPeer(
 		}
 	}
 
+	final = threadStatusDownloadDone
 	return recs, nil
 }
 
 // pushRecord to log addresses and thread topic.
-func (s *server) pushRecord(ctx context.Context, id thread.ID, lid peer.ID, rec core.Record) error {
+func (s *server) pushRecord(ctx context.Context, tid thread.ID, lid peer.ID, rec core.Record) error {
 	// Collect known writers
 	addrs := make([]ma.Multiaddr, 0)
-	info, err := s.net.store.GetThread(id)
+	info, err := s.net.store.GetThread(tid)
 	if err != nil {
 		return err
 	}
@@ -295,7 +303,7 @@ func (s *server) pushRecord(ctx context.Context, id thread.ID, lid peer.ID, rec 
 		return err
 	}
 	body := &pb.PushRecordRequest_Body{
-		ThreadID: &pb.ProtoThreadID{ID: id},
+		ThreadID: &pb.ProtoThreadID{ID: tid},
 		LogID:    &pb.ProtoPeerID{ID: lid},
 		Record:   pbrec,
 	}
@@ -314,6 +322,12 @@ func (s *server) pushRecord(ctx context.Context, id thread.ID, lid peer.ID, rec 
 	// Push to each address
 	for _, p := range peers {
 		go withErrLog(p, func(pid peer.ID) error {
+			var final = threadStatusUploadFailed
+			if registry := s.net.tStat; registry != nil {
+				registry.Apply(pid, tid, threadStatusUploadStarted)
+				defer func() { registry.Apply(pid, tid, final) }()
+			}
+
 			client, err := s.dial(pid)
 			if err != nil {
 				return fmt.Errorf("dial %s failed: %w", pid, err)
@@ -323,12 +337,12 @@ func (s *server) pushRecord(ctx context.Context, id thread.ID, lid peer.ID, rec 
 			if _, err = client.PushRecord(cctx, req); err != nil {
 				if status.Convert(err).Code() == codes.NotFound { // Send the missing log
 					log.Debugf("pushing log %s to %s...", lid, pid)
-					l, err := s.net.store.GetLog(id, lid)
+					l, err := s.net.store.GetLog(tid, lid)
 					if err != nil {
 						return err
 					}
 					body := &pb.PushLogRequest_Body{
-						ThreadID: &pb.ProtoThreadID{ID: id},
+						ThreadID: &pb.ProtoThreadID{ID: tid},
 						Log:      logToProto(l),
 					}
 					sig, key, err := s.signRequestBody(body)
@@ -346,18 +360,22 @@ func (s *server) pushRecord(ctx context.Context, id thread.ID, lid peer.ID, rec 
 						log.Warnf("push log to %s failed: %s", pid, err)
 						return nil
 					}
+
+					final = threadStatusUploadDone
 					return nil
 				}
 				log.Warnf("push record to %s failed: %s", pid, err)
 				return nil
 			}
+
+			final = threadStatusUploadDone
 			return nil
 		})
 	}
 
 	// Finally, publish to the thread's topic
 	if s.ps != nil {
-		if err = s.ps.Publish(ctx, id, req); err != nil {
+		if err = s.ps.Publish(ctx, tid, req); err != nil {
 			log.Errorf("error publishing record: %s", err)
 		}
 	}
