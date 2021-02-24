@@ -122,18 +122,61 @@ func (s *server) pushLog(ctx context.Context, id thread.ID, lg thread.LogInfo, p
 	return err
 }
 
-// getRecords from log addresses.
+// getRecords from specified peers.
 func (s *server) getRecords(
-	ctx context.Context,
+	peers []peer.ID,
 	tid thread.ID,
 	offsets map[peer.ID]cid.Cid,
 	limit int,
 ) (map[peer.ID][]core.Record, error) {
-	sk, err := s.net.store.ServiceKey(tid)
+	req, sk, err := s.buildGetRecordsRequest(tid, offsets, limit)
 	if err != nil {
 		return nil, err
-	} else if sk == nil {
-		return nil, errors.New("a service-key is required to request records")
+	}
+
+	var (
+		rc = newRecordCollector()
+		wg sync.WaitGroup
+	)
+
+	// Pull from every peer
+	for _, p := range peers {
+		wg.Add(1)
+
+		go withErrLog(p, func(pid peer.ID) error {
+			defer wg.Done()
+
+			return s.net.queueGetRecords.Call(pid, tid, func(ctx context.Context, pid peer.ID, tid thread.ID) error {
+				recs, err := s.getRecordsFromPeer(ctx, tid, pid, req, sk)
+				if err != nil {
+					return err
+				}
+				for lid, rs := range recs {
+					for _, rec := range rs {
+						rc.Store(lid, rec)
+					}
+				}
+				return nil
+			})
+		})
+	}
+	wg.Wait()
+
+	return rc.List()
+}
+
+func (s *server) buildGetRecordsRequest(
+	tid thread.ID,
+	offsets map[peer.ID]cid.Cid,
+	limit int,
+) (req *pb.GetRecordsRequest, serviceKey *sym.Key, err error) {
+	serviceKey, err = s.net.store.ServiceKey(tid)
+	if err != nil {
+		err = fmt.Errorf("obtaining service key: %w", err)
+		return
+	} else if serviceKey == nil {
+		err = errors.New("a service-key is required to request records")
+		return
 	}
 
 	var pblgs = make([]*pb.GetRecordsRequest_Body_LogEntry, 0, len(offsets))
@@ -147,113 +190,88 @@ func (s *server) getRecords(
 
 	body := &pb.GetRecordsRequest_Body{
 		ThreadID:   &pb.ProtoThreadID{ID: tid},
-		ServiceKey: &pb.ProtoKey{Key: sk},
+		ServiceKey: &pb.ProtoKey{Key: serviceKey},
 		Logs:       pblgs,
 	}
 
 	sig, key, err := s.signRequestBody(body)
 	if err != nil {
-		return nil, fmt.Errorf("signing GetRecords request: %w", err)
+		err = fmt.Errorf("signing GetRecords request: %w", err)
+		return
 	}
 
-	req := &pb.GetRecordsRequest{
+	req = &pb.GetRecordsRequest{
 		Header: &pb.Header{
 			PubKey:    &pb.ProtoPubKey{PubKey: key},
 			Signature: sig,
 		},
 		Body: body,
 	}
+	return
+}
 
-	// set of unique log addresses
-	var logAddrs = make(map[ma.Multiaddr]struct{}, len(offsets))
-	for lid := range offsets {
-		las, err := s.net.store.Addrs(tid, lid)
+// Send GetRecords request to a certain peer.
+func (s *server) getRecordsFromPeer(
+	ctx context.Context,
+	tid thread.ID,
+	pid peer.ID,
+	req *pb.GetRecordsRequest,
+	serviceKey *sym.Key,
+) (map[peer.ID][]core.Record, error) {
+	log.Debugf("getting records from %s...", pid)
+	client, err := s.dial(pid)
+	if err != nil {
+		return nil, fmt.Errorf("dial %s failed: %w", pid, err)
+	}
+
+	recs := make(map[peer.ID][]core.Record)
+	cctx, cancel := context.WithTimeout(ctx, PullTimeout)
+	defer cancel()
+	reply, err := client.GetRecords(cctx, req)
+	if err != nil {
+		log.Warnf("get records from %s failed: %s", pid, err)
+		return recs, nil
+	}
+
+	for _, l := range reply.Logs {
+		var logID = l.LogID.ID
+		log.Debugf("received %d records in log %s from %s", len(l.Records), logID, pid)
+
+		if l.Log != nil && len(l.Log.Addrs) > 0 {
+			if err = s.net.store.AddAddrs(tid, logID, addrsFromProto(l.Log.Addrs), pstore.PermanentAddrTTL); err != nil {
+				return nil, err
+			}
+		}
+
+		pk, err := s.net.store.PubKey(tid, logID)
 		if err != nil {
 			return nil, err
 		}
-		for _, addr := range las {
-			logAddrs[addr] = struct{}{}
+
+		if pk == nil {
+			if l.Log == nil || l.Log.PubKey == nil {
+				// cannot verify received records
+				continue
+			}
+			if err := s.net.store.AddPubKey(tid, logID, l.Log.PubKey); err != nil {
+				return nil, err
+			}
+			pk = l.Log.PubKey
+		}
+
+		for _, r := range l.Records {
+			rec, err := cbor.RecordFromProto(r, serviceKey)
+			if err != nil {
+				return nil, err
+			}
+			if err = rec.Verify(pk); err != nil {
+				return nil, err
+			}
+			recs[logID] = append(recs[logID], rec)
 		}
 	}
 
-	var (
-		rc = newRecordCollector()
-		wg sync.WaitGroup
-	)
-
-	// Pull from each address
-	for addr := range logAddrs {
-		wg.Add(1)
-
-		go withErrLog(addr, func(addr ma.Multiaddr) error {
-			defer wg.Done()
-			pid, ok, err := s.net.callablePeer(addr)
-			if err != nil {
-				return err
-			} else if !ok {
-				// skip calling itself
-				return nil
-			}
-
-			log.Debugf("getting records from %s...", pid)
-
-			client, err := s.dial(pid)
-			if err != nil {
-				return fmt.Errorf("dial %s failed: %w", pid, err)
-			}
-
-			cctx, cancel := context.WithTimeout(ctx, PullTimeout)
-			defer cancel()
-			reply, err := client.GetRecords(cctx, req)
-			if err != nil {
-				log.Warnf("get records from %s failed: %s", pid, err)
-				return nil
-			}
-
-			for _, l := range reply.Logs {
-				var logID = l.LogID.ID
-				log.Debugf("received %d records in log %s from %s", len(l.Records), logID, pid)
-
-				if l.Log != nil && len(l.Log.Addrs) > 0 {
-					if err = s.net.store.AddAddrs(tid, logID, addrsFromProto(l.Log.Addrs), pstore.PermanentAddrTTL); err != nil {
-						return err
-					}
-				}
-
-				pk, err := s.net.store.PubKey(tid, logID)
-				if err != nil {
-					return err
-				}
-
-				if pk == nil {
-					if l.Log == nil || l.Log.PubKey == nil {
-						// cannot verify received records
-						continue
-					}
-					if err := s.net.store.AddPubKey(tid, logID, l.Log.PubKey); err != nil {
-						return err
-					}
-					pk = l.Log.PubKey
-				}
-
-				for _, r := range l.Records {
-					rec, err := cbor.RecordFromProto(r, sk)
-					if err != nil {
-						return err
-					}
-					if err = rec.Verify(pk); err != nil {
-						return err
-					}
-
-					rc.Store(logID, rec)
-				}
-			}
-			return nil
-		})
-	}
-	wg.Wait()
-
-	return rc.List()
+	return recs, nil
 }
 
 // pushRecord to log addresses and thread topic.
@@ -266,6 +284,10 @@ func (s *server) pushRecord(ctx context.Context, id thread.ID, lid peer.ID, rec 
 	}
 	for _, l := range info.Logs {
 		addrs = append(addrs, l.Addrs...)
+	}
+	peers, err := s.net.uniquePeers(addrs)
+	if err != nil {
+		return err
 	}
 
 	pbrec, err := cbor.RecordToProto(ctx, s.net, rec)
@@ -290,16 +312,8 @@ func (s *server) pushRecord(ctx context.Context, id thread.ID, lid peer.ID, rec 
 	}
 
 	// Push to each address
-	for _, addr := range addrs {
-		go withErrLog(addr, func(addr ma.Multiaddr) error {
-			pid, ok, err := s.net.callablePeer(addr)
-			if err != nil {
-				return err
-			} else if !ok {
-				// skip calling itself
-				return nil
-			}
-
+	for _, p := range peers {
+		go withErrLog(p, func(pid peer.ID) error {
 			client, err := s.dial(pid)
 			if err != nil {
 				return fmt.Errorf("dial %s failed: %w", pid, err)
@@ -345,6 +359,91 @@ func (s *server) pushRecord(ctx context.Context, id thread.ID, lid peer.ID, rec 
 	if s.ps != nil {
 		if err = s.ps.Publish(ctx, id, req); err != nil {
 			log.Errorf("error publishing record: %s", err)
+		}
+	}
+
+	return nil
+}
+
+// exchangeEdges of specified threads with a peer.
+func (s *server) exchangeEdges(ctx context.Context, pid peer.ID, tids []thread.ID) error {
+	log.Debugf("exchanging edges of %d threads with %s...", len(tids), pid)
+	var body = &pb.ExchangeEdgesRequest_Body{}
+
+	// get local edges
+	for _, tid := range tids {
+		addrsEdge, headsEdge, err := s.localEdges(tid)
+		if err != nil {
+			return err
+		}
+		body.Threads = append(body.Threads, &pb.ExchangeEdgesRequest_Body_ThreadEntry{
+			ThreadID:    &pb.ProtoThreadID{ID: tid},
+			HeadsEdge:   headsEdge,
+			AddressEdge: addrsEdge,
+		})
+	}
+
+	sig, key, err := s.signRequestBody(body)
+	if err != nil {
+		return err
+	}
+	req := &pb.ExchangeEdgesRequest{
+		Header: &pb.Header{
+			PubKey:    &pb.ProtoPubKey{PubKey: key},
+			Signature: sig,
+		},
+		Body: body,
+	}
+
+	// send request
+	client, err := s.dial(pid)
+	if err != nil {
+		return fmt.Errorf("dial %s failed: %w", pid, err)
+	}
+	cctx, cancel := context.WithTimeout(ctx, PullTimeout)
+	defer cancel()
+	reply, err := client.ExchangeEdges(cctx, req)
+	if err != nil {
+		if st, ok := status.FromError(err); ok {
+			switch st.Code() {
+			case codes.Unimplemented:
+				log.Debugf("%s doesn't support edge exchange, falling back to direct record pulling", pid)
+				for _, tid := range tids {
+					if s.net.queueGetRecords.Schedule(pid, tid, callPriorityLow, s.net.updateRecordsFromPeer) {
+						log.Debugf("record update for thread %s from %s scheduled", tid, pid)
+					}
+				}
+				return nil
+			case codes.Unavailable:
+				log.Debugf("%s unavailable, skip edge exchange", pid)
+				return nil
+			}
+		}
+		return err
+	}
+
+	for i, e := range reply.GetEdges() {
+		tid := tids[i]
+		if !e.GetExists() {
+			// invariant: respondent should request missing thread info
+			continue
+		}
+
+		// get local edges potentially updated by another process
+		addrsEdgeLocal, headsEdgeLocal, err := s.localEdges(tid)
+		if err != nil {
+			return err
+		}
+
+		if e.GetAddressEdge() != addrsEdgeLocal {
+			if s.net.queueGetLogs.Schedule(pid, tid, callPriorityLow, s.net.updateLogsFromPeer) {
+				log.Debugf("log information update for thread %s from %s scheduled", tid, pid)
+			}
+		}
+		if e.GetHeadsEdge() != headsEdgeLocal {
+			if s.net.queueGetRecords.Schedule(pid, tid, callPriorityLow, s.net.updateRecordsFromPeer) {
+				log.Debugf("record update for thread %s from %s scheduled", tid, pid)
+			}
 		}
 	}
 
@@ -410,8 +509,8 @@ func (s *server) signRequestBody(msg proto.Marshaler) (sig []byte, pk crypto.Pub
 	return sig, sk.GetPublic(), nil
 }
 
-func withErrLog(addr ma.Multiaddr, f func(addr ma.Multiaddr) error) {
-	if err := f(addr); err != nil {
+func withErrLog(pid peer.ID, f func(pid peer.ID) error) {
+	if err := f(pid); err != nil {
 		log.Error(err.Error())
 	}
 }

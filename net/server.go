@@ -16,6 +16,7 @@ import (
 	lstore "github.com/textileio/go-threads/core/logstore"
 	"github.com/textileio/go-threads/core/thread"
 	pb "github.com/textileio/go-threads/net/pb"
+	"github.com/textileio/go-threads/util"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 )
@@ -140,12 +141,13 @@ func (s *server) PushLog(_ context.Context, req *pb.PushLogRequest) (*pb.PushLog
 	}
 
 	lg := logFromProto(req.Body.Log)
-	err = s.net.createExternalLogIfNotExist(req.Body.ThreadID.ID, lg.ID, lg.PubKey, lg.PrivKey, lg.Addrs)
-	if err != nil {
+	if err = s.net.createExternalLogsIfNotExist(req.Body.ThreadID.ID, []thread.LogInfo{lg}); err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	go s.net.updateRecordsFromLog(req.Body.ThreadID.ID, lg.ID)
+	if s.net.queueGetRecords.Schedule(pid, req.Body.ThreadID.ID, callPriorityLow, s.net.updateRecordsFromPeer) {
+		log.Debugf("record update for thread %s from %s scheduled", req.Body.ThreadID.ID, pid)
+	}
 	return &pb.PushLogReply{}, nil
 }
 
@@ -157,9 +159,16 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 	}
 	log.Debugf("received get records request from %s", pid)
 
-	pbrecs := &pb.GetRecordsReply{}
+	var pbrecs = &pb.GetRecordsReply{}
 	if err := s.checkServiceKey(req.Body.ThreadID.ID, req.Body.ServiceKey); err != nil {
 		return pbrecs, err
+	}
+
+	// fast check if requested offsets are equal with thread heads
+	if changed, err := s.headsChanged(req); err != nil {
+		return nil, err
+	} else if !changed {
+		return pbrecs, nil
 	}
 
 	reqd := make(map[peer.ID]*pb.GetRecordsRequest_Body_LogEntry)
@@ -259,6 +268,69 @@ func (s *server) PushRecord(ctx context.Context, req *pb.PushRecordRequest) (*pb
 	return &pb.PushRecordReply{}, nil
 }
 
+// ExchangeEdges receives an exchange edges request.
+func (s *server) ExchangeEdges(ctx context.Context, req *pb.ExchangeEdgesRequest) (*pb.ExchangeEdgesReply, error) {
+	pid, err := verifyRequest(req.Header, req.Body)
+	if err != nil {
+		return nil, err
+	}
+	log.Debugf("received exchange edges request from %s", pid)
+
+	var reply pb.ExchangeEdgesReply
+	for _, entry := range req.Body.Threads {
+		var tid = entry.ThreadID.ID
+		addrsEdgeLocal, headsEdgeLocal, err := s.localEdges(tid)
+		if err != nil {
+			if errors.Is(err, lstore.ErrThreadNotFound) {
+				s.net.queueGetLogs.Schedule(
+					pid,
+					tid,
+					callPriorityHigh,
+					func(ctx context.Context, p peer.ID, t thread.ID) error {
+						if err := s.net.updateLogsFromPeer(ctx, p, t); err != nil {
+							return err
+						}
+						if s.net.server.ps != nil {
+							return s.net.server.ps.Add(t)
+						}
+						return nil
+					})
+				reply.Edges = append(reply.Edges, &pb.ExchangeEdgesReply_ThreadEdges{
+					ThreadID: &pb.ProtoThreadID{ID: tid},
+					Exists:   false,
+				})
+				continue
+			}
+			return nil, err
+		}
+
+		var (
+			addrsEdgeRemote = entry.AddressEdge
+			headsEdgeRemote = entry.HeadsEdge
+		)
+
+		if addrsEdgeLocal != addrsEdgeRemote {
+			if s.net.queueGetLogs.Schedule(pid, tid, callPriorityLow, s.net.updateLogsFromPeer) {
+				log.Debugf("log information update for thread %s from %s scheduled", tid, pid)
+			}
+		}
+		if headsEdgeLocal != headsEdgeRemote {
+			if s.net.queueGetRecords.Schedule(pid, tid, callPriorityLow, s.net.updateRecordsFromPeer) {
+				log.Debugf("record update for thread %s from %s scheduled", tid, pid)
+			}
+		}
+
+		reply.Edges = append(reply.Edges, &pb.ExchangeEdgesReply_ThreadEdges{
+			ThreadID:    &pb.ProtoThreadID{ID: tid},
+			Exists:      true,
+			AddressEdge: addrsEdgeLocal,
+			HeadsEdge:   headsEdgeLocal,
+		})
+	}
+
+	return &reply, nil
+}
+
 // checkServiceKey compares a key with the one stored under thread.
 func (s *server) checkServiceKey(id thread.ID, k *pb.ProtoKey) error {
 	if k == nil || k.Key == nil {
@@ -275,6 +347,32 @@ func (s *server) checkServiceKey(id thread.ID, k *pb.ProtoKey) error {
 		return status.Error(codes.Unauthenticated, "invalid service-key")
 	}
 	return nil
+}
+
+// headsChanged determines if thread heads are different from the requested offsets.
+func (s *server) headsChanged(req *pb.GetRecordsRequest) (bool, error) {
+	var reqHeads = make([]util.LogHead, len(req.Body.Logs))
+	for i, l := range req.Body.GetLogs() {
+		reqHeads[i] = util.LogHead{Head: l.Offset.Cid, LogID: l.LogID.ID}
+	}
+	var currEdge, err = s.net.store.HeadsEdge(req.Body.ThreadID.ID)
+	if err != nil {
+		return false, err
+	}
+	return util.ComputeHeadsEdge(reqHeads) != currEdge, nil
+}
+
+// localEdges returns values of local addresses/heads edges for the thread.
+func (s *server) localEdges(tid thread.ID) (addrsEdge, headsEdge uint64, err error) {
+	addrsEdge, err = s.net.store.AddrsEdge(tid)
+	if err != nil {
+		return
+	}
+	headsEdge, err = s.net.store.HeadsEdge(tid)
+	if err != nil {
+		return
+	}
+	return
 }
 
 // verifyRequest verifies that the signature associated with a request is valid.
