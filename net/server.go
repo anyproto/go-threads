@@ -88,7 +88,9 @@ func (s *server) GetLogs(_ context.Context, req *pb.GetLogsRequest) (*pb.GetLogs
 	if err != nil {
 		return nil, err
 	}
-	log.Debugf("received get logs request from %s", pid)
+	log.With("thread", req.Body.ThreadID.String()).
+		With("peer", pid.String()).
+		Debugf("received get logs request from %s", pid)
 
 	pblgs := &pb.GetLogsReply{}
 	if err := s.checkServiceKey(req.Body.ThreadID.ID, req.Body.ServiceKey); err != nil {
@@ -117,7 +119,10 @@ func (s *server) PushLog(_ context.Context, req *pb.PushLogRequest) (*pb.PushLog
 	if err != nil {
 		return nil, err
 	}
-	log.Debugf("received push log request from %s", pid)
+	log.With("peer", pid.String()).
+		With("thread", req.Body.ThreadID.String()).
+		With("log", req.Body.Log.ID.String()).
+		Debugf("received push log request from %s: thread %s log %s head %s", pid, req.Body.ThreadID.String(), req.Body.Log.Head.String(), req.Body.Log.Head.Cid.String())
 
 	// Pick up missing keys
 	info, err := s.net.store.GetThread(req.Body.ThreadID.ID)
@@ -157,7 +162,9 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 	if err != nil {
 		return nil, err
 	}
-	log.Debugf("received get records request from %s", pid)
+	log := log.With("peer", pid.String()).
+		With("thread", req.Body.ThreadID.String())
+	log.Debugf("received get records request from %s: thread %s", pid, req.Body.ThreadID.String())
 
 	var pbrecs = &pb.GetRecordsReply{}
 	if err := s.checkServiceKey(req.Body.ThreadID.ID, req.Body.ServiceKey); err != nil {
@@ -240,7 +247,10 @@ func (s *server) PushRecord(ctx context.Context, req *pb.PushRecordRequest) (*pb
 	if err != nil {
 		return nil, err
 	}
-	log.Debugf("received push record request from %s", pid)
+	log.With("peer", pid.String()).
+		With("log", req.Body.LogID.String()).
+		With("thread", req.Body.ThreadID.String()).
+		Debugf("received push record request from %s: thread %s", pid, req.Body.ThreadID.String())
 
 	var tid = req.Body.ThreadID.ID
 	// A log is required to accept new records

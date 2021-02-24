@@ -216,13 +216,13 @@ func (t Token) Validate(issuer crypto.PrivKey) (PubKey, error) {
 	if issuer == nil {
 		return nil, fmt.Errorf("cannot validate with nil issuer")
 	}
+	if t == "" {
+		return nil, nil
+	}
 	var ok bool
 	issuer, ok = issuer.(*crypto.Ed25519PrivateKey)
 	if !ok {
 		log.Fatal("issuer must be an Ed25519PrivateKey")
-	}
-	if t == "" {
-		return nil, nil
 	}
 	keyfunc := func(*jwt.Token) (interface{}, error) {
 		return issuer.GetPublic(), nil
