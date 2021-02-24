@@ -441,7 +441,7 @@ func (s *server) exchangeEdges(ctx context.Context, pid peer.ID, tids []thread.I
 	}
 
 	for i, e := range reply.GetEdges() {
-		tid := tids[i]
+		var tid = tids[i]
 		if !e.GetExists() {
 			// invariant: respondent should request missing thread info
 			continue
@@ -462,6 +462,10 @@ func (s *server) exchangeEdges(ctx context.Context, pid peer.ID, tids []thread.I
 			if s.net.queueGetRecords.Schedule(pid, tid, callPriorityLow, s.net.updateRecordsFromPeer) {
 				log.Debugf("record update for thread %s from %s scheduled", tid, pid)
 			}
+		} else if registry := s.net.tStat; registry != nil {
+			// equal heads could be interpreted as successful upload/download
+			registry.Apply(pid, tid, threadStatusDownloadDone)
+			registry.Apply(pid, tid, threadStatusUploadDone)
 		}
 	}
 

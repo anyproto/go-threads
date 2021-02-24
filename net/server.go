@@ -338,6 +338,10 @@ func (s *server) ExchangeEdges(ctx context.Context, req *pb.ExchangeEdgesRequest
 			if s.net.queueGetRecords.Schedule(pid, tid, callPriorityLow, s.net.updateRecordsFromPeer) {
 				log.Debugf("record update for thread %s from %s scheduled", tid, pid)
 			}
+		} else if registry := s.net.tStat; registry != nil {
+			// equal heads could be interpreted as successful upload/download
+			registry.Apply(pid, tid, threadStatusDownloadDone)
+			registry.Apply(pid, tid, threadStatusUploadDone)
 		}
 
 		reply.Edges = append(reply.Edges, &pb.ExchangeEdgesReply_ThreadEdges{
