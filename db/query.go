@@ -314,6 +314,9 @@ func (t *Txn) Find(q *Query) ([][]byte, error) {
 		return nil, err
 	}
 	var values []MarshaledResult
+	// Use count to track real count of returned values taking into account
+	// read filter and any indexes etc in the query
+	var count = 0
 	for {
 		res, ok := iter.NextSync()
 		if !ok {
@@ -324,7 +327,14 @@ func (t *Txn) Find(q *Query) ([][]byte, error) {
 			return nil, err
 		}
 		if res.Value != nil {
-			values = append(values, res)
+			// Only count valid values that aren't filtered by the read filter
+			count++
+			if count > q.Skip {
+				values = append(values, res)
+			}
+		}
+		if len(values) == q.Limit {
+			break
 		}
 	}
 

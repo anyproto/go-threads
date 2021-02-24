@@ -179,19 +179,25 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 		return nil, err
 	}
 	pbrecs.Logs = make([]*pb.GetRecordsReply_LogEntry, len(info.Logs))
-	ctx, cancel := context.WithTimeout(ctx, time.Second*30)
-	defer cancel()
 
+	var recordLimit = MaxPullLimit
 	for i, lg := range info.Logs {
-		var offset cid.Cid
-		var limit int
-		var pblg *pb.Log
+		var (
+			offset cid.Cid
+			limit  int
+			pblg   *pb.Log
+
+			// correct records-per-log limit
+			logsRemain     = len(info.Logs) - i
+			logRecordLimit = recordLimit / logsRemain
+		)
+
 		if opts, ok := reqd[lg.ID]; ok {
 			offset = opts.Offset.Cid
-			limit = int(opts.Limit)
+			limit = minInt(int(opts.Limit), logRecordLimit)
 		} else {
 			offset = cid.Undef
-			limit = MaxPullLimit
+			limit = logRecordLimit
 			pblg = logToProto(lg)
 		}
 		recs, err := s.net.getLocalRecords(ctx, req.Body.ThreadID.ID, lg.ID, offset, limit)
@@ -212,7 +218,10 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 		}
 		pbrecs.Logs[i] = entry
 
-		log.Debugf("sending %d records in thread %s log %s to %s", len(recs), info.ID.String(), lg.ID, pid)
+		// update remaining records limit
+		recordLimit -= len(recs)
+
+		log.Debugf("sending %d records in log %s to %s", len(recs), lg.ID, pid)
 	}
 
 	return pbrecs, nil
@@ -337,4 +346,11 @@ func addrsFromProto(pa []pb.ProtoAddr) []ma.Multiaddr {
 		mas[i] = a.Multiaddr
 	}
 	return mas
+}
+
+func minInt(x, y int) int {
+	if x < y {
+		return x
+	}
+	return y
 }
