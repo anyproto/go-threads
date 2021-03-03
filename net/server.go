@@ -222,23 +222,30 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 		wg.Add(1)
 		go func(tid thread.ID, lid peer.ID, off cid.Cid, lim int) {
 			defer wg.Done()
+
 			recs, err := s.net.getLocalRecords(ctx, tid, lid, off, lim)
 			if err != nil {
 				log.Errorf("getting local records (thread %s, log %s): %v", tid, lid, err)
 				atomic.AddInt32(&failures, 1)
-				return
-			}
-			entry := &pb.GetRecordsReply_LogEntry{
-				LogID:   &pb.ProtoPeerID{ID: lid},
-				Records: make([]*pb.Log_Record, len(recs)),
-				Log:     pblg,
-			}
-			for j, r := range recs {
-				if entry.Records[j], err = cbor.RecordToProto(ctx, s.net, r); err != nil {
-					log.Errorf("constructing proto-record %s (thread %s, log %s): %v", r.Cid(), tid, lid, err)
-					atomic.AddInt32(&failures, 1)
+				if len(recs) == 0 {
+					// no partial results to process
 					return
 				}
+			}
+
+			entry := &pb.GetRecordsReply_LogEntry{
+				LogID:   &pb.ProtoPeerID{ID: lid},
+				Records: make([]*pb.Log_Record, 0, len(recs)),
+				Log:     pblg,
+			}
+			for _, r := range recs {
+				pr, err := cbor.RecordToProto(ctx, s.net, r)
+				if err != nil {
+					log.Errorf("constructing proto-record %s (thread %s, log %s): %v", r.Cid(), tid, lid, err)
+					atomic.AddInt32(&failures, 1)
+					break
+				}
+				entry.Records = append(entry.Records, pr)
 			}
 
 			mx.Lock()

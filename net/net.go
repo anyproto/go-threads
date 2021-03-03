@@ -1189,7 +1189,7 @@ func (n *net) getLocalRecords(
 	offset cid.Cid,
 	limit int,
 ) ([]core.Record, error) {
-	if offset != cid.Undef {
+	if offset.Defined() {
 		// ensure that we know about requested offset
 		if knownRecord, err := n.isKnown(offset); err != nil {
 			return nil, err
@@ -1226,7 +1226,8 @@ func (n *net) getLocalRecords(
 					With("log", lid.String()).
 					Errorf("getLocalRecords deadline when getting record %s. In total got %d records", cursor.String(), len(recs))
 			}
-			return nil, err
+			// return records fetched so far
+			return recs, err
 		}
 		recs = append([]core.Record{r}, recs...)
 		cursor = r.PrevID()
