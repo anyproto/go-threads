@@ -1437,6 +1437,7 @@ func (n *net) ensureUniqueLog(id thread.ID, key crypto.Key, identity thread.PubK
 
 // updateRecordsFromPeer fetches new logs & records from the peer and adds them in the local peer store.
 func (n *net) updateRecordsFromPeer(ctx context.Context, pid peer.ID, tid thread.ID) error {
+	log.With("thread", tid.String()).With("peer", pid.String()).Debugf("update records from peer")
 	offsets, _, err := n.threadOffsets(tid)
 	if err != nil {
 		return fmt.Errorf("getting offsets for thread %s failed: %w", tid, err)
@@ -1461,6 +1462,7 @@ func (n *net) updateRecordsFromPeer(ctx context.Context, pid peer.ID, tid thread
 
 // updateLogsFromPeer gets new logs information from the peer and adds it in the local peer store.
 func (n *net) updateLogsFromPeer(ctx context.Context, pid peer.ID, tid thread.ID) error {
+	log.With("thread", tid.String()).With("peer", pid.String()).Debugf("update logs from peer")
 	lgs, err := n.server.getLogs(ctx, tid, pid)
 	if err != nil {
 		return err
