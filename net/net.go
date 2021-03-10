@@ -72,6 +72,7 @@ var (
 	tokenChallengeTimeout = time.Minute
 
 	ErrSyncTrackingDisabled = errors.New("synchronization tracking disabled")
+	ErrOffsetIsMissing      = errors.New("offset is missing")
 )
 
 const (
@@ -1215,10 +1216,16 @@ func (n *net) getLocalRecords(
 		recs   []core.Record
 	)
 
+	var offsetFound bool
 	for len(recs) < limit {
-		if !cursor.Defined() || cursor.String() == offset.String() {
+		if !cursor.Defined() {
 			break
 		}
+		if offset.Defined() && cursor.Equals(offset) {
+			offsetFound = true
+			break
+		}
+
 		r, err := cbor.GetRecord(ctx, n, cursor, sk) // Important invariant: heads are always in blockstore
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
@@ -1229,8 +1236,17 @@ func (n *net) getLocalRecords(
 			// return records fetched so far
 			return recs, err
 		}
+
 		recs = append([]core.Record{r}, recs...)
 		cursor = r.PrevID()
+	}
+
+	if !offsetFound {
+		// reset and return only in case we have traversed the whole tree
+		if !cursor.Defined() {
+			return nil, ErrOffsetIsMissing
+		}
+		log.Errorf("getLocalRecords offset not found but not whole log were traversed")
 	}
 
 	return recs, nil

@@ -220,6 +220,12 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 			if err != nil {
 				log.With("thread", tid.String()).With("log", lid.String()).Errorf("getting local records failed: %v", err)
 				atomic.AddInt32(&failures, 1)
+
+				if err == ErrOffsetIsMissing {
+					if s.net.queueGetRecords.Schedule(pid, tid, callPriorityHigh, s.net.updateRecordsFromPeer) {
+						log.With("thread", tid.String()).With("log", lid.String()).Warnf("got not-existing offset: record update for thread %s from %s scheduled", tid, pid)
+					}
+				}
 			}
 
 			var prs = make([]*pb.Log_Record, 0, len(recs))
@@ -245,7 +251,7 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 			})
 			mx.Unlock()
 
-			log.With("thread", tid.String()).With("peer", pid.String()).Debugf("sending %d records in log to remote peer", len(recs))
+			log.With("thread", tid.String()).With("peer", pid.String()).With("offset", off.String()).With("head", lg.Head.String()).Debugf("sending %d records in log to remote peer", len(recs))
 		}(req.Body.ThreadID.ID, lg.ID, offset, limit)
 	}
 	wg.Wait()
@@ -265,7 +271,6 @@ func (s *server) PushRecord(ctx context.Context, req *pb.PushRecordRequest) (*pb
 	if err != nil {
 		return nil, err
 	}
-	log.With("peer", pid.String()).Debugf("received push record request from peer")
 	log.With("peer", pid.String()).
 		With("log", req.Body.LogID.String()).
 		With("thread", req.Body.ThreadID.String()).

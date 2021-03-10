@@ -375,6 +375,7 @@ func (s *server) pushRecordToPeer(
 
 	case codes.NotFound:
 		// send the missing log
+		log.With("peer", pid.String()).With("thread", tid.String()).Warnf("push record to remote peer failed, not found. Resend the log and try again...")
 		lctx, cancel := context.WithTimeout(s.net.ctx, PushTimeout)
 		defer cancel()
 		lg, err := s.net.store.GetLog(tid, lid)
@@ -406,6 +407,7 @@ func (s *server) pushRecordToPeer(
 		if _, err = client.PushRecord(rctx, req); err != nil {
 			return fmt.Errorf("re-pushing record: %w", err)
 		}
+		log.With("peer", pid.String()).With("thread", tid.String()).Debugf("record successfully repushed after sending the missing log")
 		final = threadStatusUploadDone
 		return nil
 
@@ -477,7 +479,7 @@ func (s *server) exchangeEdges(ctx context.Context, pid peer.ID, tids []thread.I
 				}
 				return nil
 			case codes.Unavailable:
-				log.With("peer", pid.String()).Debugf("peer unavailable, skip edge exchange")
+				log.With("peer", pid.String()).Debugf("peer unavailable, skip edge exchange: %s", err.Error())
 				return nil
 			}
 		}

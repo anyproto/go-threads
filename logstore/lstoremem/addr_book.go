@@ -540,6 +540,7 @@ func (mab *memoryAddrBook) RestoreAddrs(dump core.DumpAddrBook) error {
 				}
 			})
 		}
+		ts[tid] = struct{}{}
 	}
 
 	mab.recomputeEdges(ts)
