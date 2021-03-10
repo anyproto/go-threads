@@ -1241,7 +1241,7 @@ func (n *net) getLocalRecords(
 		cursor = r.PrevID()
 	}
 
-	if !offsetFound {
+	if offset.Defined() && !offsetFound {
 		// reset and return only in case we have traversed the whole tree
 		if !cursor.Defined() {
 			return nil, ErrOffsetIsMissing
