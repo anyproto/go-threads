@@ -450,7 +450,7 @@ func (n *net) pullThread(ctx context.Context, tid thread.ID) error {
 
 	for lid, rs := range recs {
 		for _, r := range rs {
-			if err = n.putRecord(ctx, tid, lid, r); err != nil {
+			if err = n.putRecord(ctx, tid, lid, r, nil); err != nil {
 				return err
 			}
 		}
@@ -738,7 +738,7 @@ func (n *net) AddRecord(
 	if err = rec.Verify(logpk); err != nil {
 		return err
 	}
-	if err = n.putRecord(ctx, id, lid, rec); err != nil {
+	if err = n.putRecord(ctx, id, lid, rec, nil); err != nil {
 		return err
 	}
 	return n.server.pushRecord(ctx, id, lid, rec)
@@ -903,18 +903,92 @@ func (n *net) PutRecord(ctx context.Context, id thread.ID, lid peer.ID, rec core
 	if err := id.Validate(); err != nil {
 		return err
 	}
-	return n.putRecord(ctx, id, lid, rec)
+	return n.putRecord(ctx, id, lid, rec, nil)
+}
+
+// trimThreadRecordsLeft trims records after specified cid
+// [1,2,3] 2 -> [3]
+// [3,4,5] 2 -> [3,4,5]
+func threadRecordsAfter(recs []core.ThreadRecord, after cid.Cid) []core.ThreadRecord {
+	for i, rec := range recs {
+		if rec.Value().Cid().Equals(after) {
+			if i < (len(recs) - 1) {
+				return recs[i+1:]
+			} else {
+				return nil
+			}
+		}
+	}
+	return recs
+}
+
+// mergeThreadRecords merges sorted(old to new) thread records slice into one, detecting which one is leading and wich one is trailing.
+// returns error in case of gap found between 2 slices
+// possible valid cases:
+// [1,2,3] [4(prevId=3),5,6] -> [1,2,3,4,5,6]
+// [4(prevId=3),5,6] [1,2,3]  -> [1,2,3,4,5,6]
+// [1,2,3] [3,4,5]  -> [1,2,3,4,5]
+// [3,4,5,6] [1,2,3,4]  -> [1,2,3,4,5,6]
+// [1,2,3] [] -> [1,2,3]
+//
+// possible invalid cases
+// [1,2,3] [5(prevId=4),6,7]
+func mergeThreadRecords(recs1, recs2 []core.ThreadRecord) ([]core.ThreadRecord, error) {
+	if len(recs1) == 0 {
+		return recs2, nil
+	}
+
+	if len(recs2) == 0 {
+		return recs1, nil
+	}
+
+	for i, rec := range recs1 {
+		if rec.Value().Cid().Equals(recs2[0].Value().Cid()) {
+			// [1,2,3] [3,4,5] case
+			return append(recs1[0:i], recs2...), nil
+		}
+	}
+
+	for i, rec := range recs2 {
+		if rec.Value().Cid().Equals(recs1[0].Value().Cid()) {
+			// [3,4,5] [1,2,3] case
+			return append(recs2[0:i], recs1...), nil
+		}
+	}
+
+	// [1,2,3] [4,5,6] case
+	if recs2[0].Value().PrevID().Equals(recs1[len(recs1)-1].Value().PrevID()) {
+		return append(recs1, recs2...), nil
+	}
+
+	// [4,5,6] [1,2,3] case
+	if recs1[0].Value().PrevID().Equals(recs2[len(recs2)-1].Value().PrevID()) {
+		return append(recs2, recs1...), nil
+	}
+
+	return nil, fmt.Errorf("there is a gap between records")
 }
 
 // putRecord adds an existing record. This method is thread-safe.
-func (n *net) putRecord(ctx context.Context, tid thread.ID, lid peer.ID, rec core.Record) error {
-	unknown, head, err := n.loadUnknownRecords(ctx, tid, lid, rec)
+func (n *net) putRecord(ctx context.Context, tid thread.ID, lid peer.ID, rec core.Record, prevUnknown []core.ThreadRecord) error {
+	newUnknown, head, err := n.loadUnknownRecords(ctx, tid, lid, rec)
 	if err != nil {
 		return fmt.Errorf("loading records failed: %w", err)
-	} else if len(unknown) == 0 {
+	}
+	unknown, err := mergeThreadRecords(prevUnknown, newUnknown)
+	if err != nil {
+		return err
+	}
+	unknown = threadRecordsAfter(unknown, head)
+	if len(unknown) == 0 {
 		return nil
 	}
 
+	if !unknown[0].Value().PrevID().Equals(head) && len(newUnknown) == 0 {
+		// inconsistent
+		// this probably means that we have prevUnknown records that was processed in parallel
+		return nil
+	}
 	ts := n.semaphores.Get(semaThreadUpdate(tid))
 	ts.Acquire()
 
@@ -924,7 +998,7 @@ func (n *net) putRecord(ctx context.Context, tid thread.ID, lid peer.ID, rec cor
 		return fmt.Errorf("fetching head failed: %w", err)
 	} else if current != head {
 		ts.Release()
-		return n.putRecord(ctx, tid, lid, rec)
+		return n.putRecord(ctx, tid, lid, rec, unknown)
 	}
 
 	defer ts.Release()
@@ -966,22 +1040,22 @@ func (n *net) loadUnknownRecords(
 	lid peer.ID,
 	last core.Record,
 ) ([]core.ThreadRecord, cid.Cid, error) {
+	head, err := n.currentHead(tid, lid)
+	if err != nil {
+		return nil, head, err
+	}
+
 	// check if last record was already loaded and processed
 	if exist, err := n.isKnown(last.Cid()); err != nil {
-		return nil, cid.Undef, err
+		return nil, head, err
 	} else if exist || !last.Cid().Defined() {
-		return nil, cid.Undef, nil
+		return nil, head, nil
 	}
 
 	var (
 		c       = last.PrevID()
 		unknown = []core.Record{last}
 	)
-
-	head, err := n.currentHead(tid, lid)
-	if err != nil {
-		return nil, head, err
-	}
 
 	// load record chain between the last and current head
 	for c.Defined() {
@@ -1468,7 +1542,7 @@ func (n *net) updateRecordsFromPeer(ctx context.Context, pid peer.ID, tid thread
 	}
 	for lid, rs := range recs {
 		for _, r := range rs {
-			if err = n.putRecord(ctx, tid, lid, r); err != nil {
+			if err = n.putRecord(ctx, tid, lid, r, nil); err != nil {
 				return fmt.Errorf("putting records from log %s (thread %s) failed: %w", lid, tid, err)
 			}
 		}
