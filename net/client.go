@@ -396,14 +396,9 @@ func (s *server) pushRecordToPeer(
 			return fmt.Errorf("pushing missing log: %w", err)
 		}
 
-		// now push original record again
-		rctx, cancel := context.WithTimeout(context.Background(), PushTimeout)
-		defer cancel()
-		if _, err = client.PushRecord(rctx, req); err != nil {
-			return fmt.Errorf("re-pushing record: %w", err)
-		}
-		log.With("peer", pid.String()).With("thread", tid.String()).Debugf("record successfully repushed after sending the missing log")
-		final = threadStatusUploadDone
+		final = threadStatusDownloadStarted
+		// we do not need to do a repush here, because other side will initiate do the getRecords from their side after receiving the new log
+
 		return nil
 
 	default:
