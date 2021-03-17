@@ -489,6 +489,7 @@ func (s *server) exchangeEdges(ctx context.Context, pid peer.ID, tids []thread.I
 	for i, e := range reply.GetEdges() {
 		var tid = tids[i]
 		if !e.GetExists() {
+			log.With("thread", tid.String()).With("peer", pid.String()).Warnf("exchangeEdges got not existed thread")
 			// invariant: respondent itself must request missing thread info
 			continue
 		}
@@ -496,13 +497,13 @@ func (s *server) exchangeEdges(ctx context.Context, pid peer.ID, tids []thread.I
 		// get local edges potentially updated by another process
 		addrsEdgeLocal, headsEdgeLocal, err := s.localEdges(tid)
 		if err != nil {
-			log.With("thread", tid.String()).Errorf("second retrieval of local edges failed: %v", err)
+			log.With("thread", tid.String()).With("peer", pid.String()).Errorf("second retrieval of local edges failed: %v", err)
 			continue
 		}
 
 		if e.GetAddressEdge() != addrsEdgeLocal {
 			if s.net.queueGetLogs.Schedule(pid, tid, callPriorityLow, s.net.updateLogsFromPeer) {
-				log.With("thread", tid.String()).With("peer", pid.String()). Debugf("log information update for thread scheduled")
+				log.With("thread", tid.String()).With("peer", pid.String()).Debugf("log information update for thread scheduled")
 			}
 		}
 		if e.GetHeadsEdge() != headsEdgeLocal {

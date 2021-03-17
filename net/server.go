@@ -364,7 +364,7 @@ func (s *server) ExchangeEdges(ctx context.Context, req *pb.ExchangeEdgesRequest
 
 		case errNoAddrsEdge:
 			// requested thread doesn't exist locally
-			log.Warnf("addresses for requested thread %s not found", tid)
+			log.Errorf("addresses for requested thread %s not found", tid)
 			s.net.queueGetLogs.Schedule(
 				pid,
 				tid,
@@ -385,7 +385,7 @@ func (s *server) ExchangeEdges(ctx context.Context, req *pb.ExchangeEdgesRequest
 
 		case errNoHeadsEdge:
 			// thread exists locally and contains addresses, but not heads - pull records for update
-			log.With("thread", tid.String()).Debugf("heads for requested thread not found")
+			log.With("thread", tid.String()).Errorf("heads for requested thread not found")
 			s.net.queueGetRecords.Schedule(pid, tid, callPriorityLow, s.net.updateRecordsFromPeer)
 			reply.Edges = append(reply.Edges, &pb.ExchangeEdgesReply_ThreadEdges{
 				ThreadID: &pb.ProtoThreadID{ID: tid},
