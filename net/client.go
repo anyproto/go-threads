@@ -400,15 +400,6 @@ func (s *server) pushRecordToPeer(
 		if _, err = client.PushLog(lctx, lreq); err != nil {
 			return fmt.Errorf("pushing missing log: %w", err)
 		}
-
-		// now push original record again
-		rctx, cancel := context.WithTimeout(context.Background(), PushTimeout)
-		defer cancel()
-		if _, err = client.PushRecord(rctx, req); err != nil {
-			return fmt.Errorf("re-pushing record: %w", err)
-		}
-		log.With("peer", pid.String()).With("thread", tid.String()).Debugf("record successfully repushed after sending the missing log")
-		final = threadStatusUploadDone
 		return nil
 
 	default:
