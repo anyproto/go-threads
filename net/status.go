@@ -221,6 +221,10 @@ func (t *threadStatusRegistry) Close() error {
 	}
 	t.mu.RUnlock()
 
+	if len(syncData) == 0 {
+		return nil
+	}
+	
 	return t.syncBook.RestoreSync(core.DumpSyncBook{Data: syncData})
 }
 
