@@ -339,7 +339,7 @@ type connTracker struct {
 	net       lnet.Network
 	conns     map[peer.ID]bool
 	listeners []chan<- tnet.ConnectionStatus
-	mu        sync.RWMutex
+	mu        sync.Mutex
 }
 
 // Tracks status of libp2p-provided connection to the peers
@@ -441,8 +441,8 @@ func (n *connTracker) tracked(pid peer.ID) bool {
 func (n *connTracker) Connected(_ lnet.Network, conn lnet.Conn) {
 	var pid = conn.RemotePeer()
 
-	n.mu.RLock()
-	defer n.mu.RUnlock()
+	n.mu.Lock()
+	defer n.mu.Unlock()
 
 	if n.tracked(pid) {
 		n.notify(pid, true)
@@ -453,8 +453,8 @@ func (n *connTracker) Connected(_ lnet.Network, conn lnet.Conn) {
 func (n *connTracker) Disconnected(_ lnet.Network, conn lnet.Conn) {
 	var pid = conn.RemotePeer()
 
-	n.mu.RLock()
-	defer n.mu.RUnlock()
+	n.mu.Lock()
+	defer n.mu.Unlock()
 
 	if n.tracked(pid) {
 		n.notify(pid, false)
