@@ -20,6 +20,7 @@ import (
 	core "github.com/textileio/go-threads/core/net"
 	"github.com/textileio/go-threads/core/thread"
 	sym "github.com/textileio/go-threads/crypto/symmetric"
+	"github.com/textileio/go-threads/csvwriter"
 	pb "github.com/textileio/go-threads/net/pb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -153,6 +154,17 @@ func (s *server) getRecords(
 				}
 				for lid, rs := range recs {
 					for _, rec := range rs {
+						var record = csvwriter.UpdateCSVRecord{
+							RecordId:  rec.Cid().String(),
+							ThreadId:  req.Body.ThreadID.String(),
+							LogId:     lid.String(),
+							Timestamp: time.Now(),
+							Type:      csvwriter.GetLogs,
+						}
+						err = csvWriter.Write(record)
+						if err != nil {
+							panic("Cannot write to file")
+						}
 						rc.Store(lid, rec)
 					}
 				}

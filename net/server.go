@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/gogo/status"
@@ -17,6 +18,7 @@ import (
 	"github.com/textileio/go-threads/cbor"
 	lstore "github.com/textileio/go-threads/core/logstore"
 	"github.com/textileio/go-threads/core/thread"
+	"github.com/textileio/go-threads/csvwriter"
 	pb "github.com/textileio/go-threads/net/pb"
 	"github.com/textileio/go-threads/util"
 	"google.golang.org/grpc"
@@ -80,7 +82,8 @@ func newServer(n *net, enablePubSub bool, opts ...grpc.DialOption) (*server, err
 
 // pubsubHandler receives records over pubsub.
 func (s *server) pubsubHandler(ctx context.Context, req *pb.PushRecordRequest) {
-	if _, err := s.PushRecord(ctx, req); err != nil {
+	newCtx := context.WithValue(ctx, "is_pubsub", true)
+	if _, err := s.PushRecord(newCtx, req); err != nil {
 		// This error will be "log not found" if the record sent over pubsub
 		// beat the log, which has to be sent directly via the normal API.
 		// In this case, the record will arrive directly after the log via
@@ -294,6 +297,24 @@ func (s *server) PushRecord(ctx context.Context, req *pb.PushRecordRequest) (*pb
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
+
+	isPubsub, ok := ctx.Value("is_pubsub").(bool)
+	operationType := csvwriter.Push
+	if ok && isPubsub {
+		operationType = csvwriter.PubSub
+	}
+	var record = csvwriter.UpdateCSVRecord{
+		RecordId:  rec.Cid().String(),
+		ThreadId:  req.Body.ThreadID.String(),
+		LogId:     req.Body.LogID.String(),
+		Timestamp: time.Now(),
+		Type:      operationType,
+	}
+	err = csvWriter.Write(record)
+	if err != nil {
+		panic("Cannot write to file")
+	}
+
 	if knownRecord, err := s.net.isKnown(rec.Cid()); err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	} else if knownRecord {

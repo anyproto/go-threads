@@ -27,6 +27,7 @@ import (
 	core "github.com/textileio/go-threads/core/net"
 	"github.com/textileio/go-threads/core/thread"
 	sym "github.com/textileio/go-threads/crypto/symmetric"
+	"github.com/textileio/go-threads/csvwriter"
 	pb "github.com/textileio/go-threads/net/pb"
 	"github.com/textileio/go-threads/net/queue"
 	"github.com/textileio/go-threads/net/util"
@@ -35,7 +36,8 @@ import (
 )
 
 var (
-	log = logging.Logger("net")
+	log          = logging.Logger("net")
+	csvWriter, _ = csvwriter.NewCSVWriter("record_updates.csv")
 
 	// MaxPullLimit is the maximum page size for pulling records.
 	MaxPullLimit = 10000
