@@ -477,7 +477,7 @@ func (s *server) exchangeEdges(ctx context.Context, pid peer.ID, tids []thread.I
 	}
 
 	for i, e := range reply.GetEdges() {
-		var tid = tids[i]
+		var tid = body.Threads[i].ThreadID.ID
 		if !e.GetExists() {
 			log.With("thread", tid.String()).With("peer", pid.String()).Warnf("exchangeEdges got not existed thread")
 			// invariant: respondent itself must request missing thread info
