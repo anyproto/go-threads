@@ -1339,14 +1339,15 @@ PullCycle:
 			select {
 			case <-ticker.C:
 				var tid = ts[idx]
-				if offsets, peers, err := n.threadOffsets(tid); err != nil {
+				if _, peers, err := n.threadOffsets(tid); err != nil {
 					log.Errorf("error getting thread info %s: %s", tid, err)
 					return
 				} else {
 					for _, pid := range peers {
-						if offsets[pid] != cid.Undef {
-							compressor.Add(pid, tid)
-						}
+						compressor.Add(pid, tid)
+					}
+					if len(peers) == 0 {
+						compressor.Add("", tid)
 					}
 				}
 
