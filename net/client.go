@@ -18,6 +18,7 @@ import (
 	core "github.com/textileio/go-threads/core/net"
 	"github.com/textileio/go-threads/core/thread"
 	sym "github.com/textileio/go-threads/crypto/symmetric"
+	"github.com/textileio/go-threads/logstore/lstoreds"
 	pb "github.com/textileio/go-threads/net/pb"
 	"github.com/textileio/go-threads/net/util"
 	"google.golang.org/grpc"
@@ -376,11 +377,8 @@ func (s *server) exchangeEdges(ctx context.Context, pid peer.ID, tids []thread.I
 	// fill local edges
 	for _, tid := range tids {
 		switch addrsEdge, headsEdge, err := s.localEdges(tid); err {
-		case errNoAddrsEdge:
-			log.With("thread", tid.String()).Warnf("cannot compute edges for thread: no addresses")
-		case errNoHeadsEdge:
-			log.With("thread", tid.String()).Debugf("cannot compute edges for threads: no heads")
-		case nil:
+		// we have emptyEdgeValue for headsEdge and addrsEdge if we get errors below
+		case errNoAddrsEdge, errNoHeadsEdge, nil:
 			body.Threads = append(body.Threads, &pb.ExchangeEdgesRequest_Body_ThreadEntry{
 				ThreadID:    &pb.ProtoThreadID{ID: tid},
 				HeadsEdge:   headsEdge,
@@ -434,17 +432,21 @@ func (s *server) exchangeEdges(ctx context.Context, pid peer.ID, tids []thread.I
 
 		// get local edges potentially updated by another process
 		addrsEdgeLocal, headsEdgeLocal, err := s.localEdges(tid)
-		if err != nil {
-			log.With("thread", tid.String()).Errorf("second retrieval of local edges failed: %v", err)
+		// we allow local edges to be empty, because the other peer can still have more information
+		if err != nil && (err != errNoHeadsEdge || err != errNoAddrsEdge) {
+			log.With("thread", tid.String()).With("peer", pid.String()).Errorf("second retrieval of local edges failed: %v", err)
 			continue
 		}
 
-		if e.GetAddressEdge() != addrsEdgeLocal {
+		responseEdge := e.GetAddressEdge()
+		if responseEdge != addrsEdgeLocal && responseEdge != lstoreds.EmptyEdgeValue {
 			if s.net.queueGetLogs.Schedule(pid, tid, callPriorityLow, s.net.updateLogsFromPeer) {
 				log.With("thread", tid.String()).With("peer", pid.String()). Debugf("log information update for thread scheduled")
 			}
 		}
-		if e.GetHeadsEdge() != headsEdgeLocal {
+
+		responseEdge = e.GetHeadsEdge()
+		if responseEdge != headsEdgeLocal && responseEdge != lstoreds.EmptyEdgeValue {
 			if s.net.queueGetRecords.Schedule(pid, tid, callPriorityLow, s.net.updateRecordsFromPeer) {
 				log.With("thread", tid.String()).With("pid", pid.String()).Debugf("record update for thread scheduled")
 			}
