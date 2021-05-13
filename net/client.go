@@ -433,7 +433,7 @@ func (s *server) exchangeEdges(ctx context.Context, pid peer.ID, tids []thread.I
 		// get local edges potentially updated by another process
 		addrsEdgeLocal, headsEdgeLocal, err := s.localEdges(tid)
 		// we allow local edges to be empty, because the other peer can still have more information
-		if err != nil && (err != errNoHeadsEdge || err != errNoAddrsEdge) {
+		if err != nil && err != errNoHeadsEdge && err != errNoAddrsEdge {
 			log.With("thread", tid.String()).With("peer", pid.String()).Errorf("second retrieval of local edges failed: %v", err)
 			continue
 		}
