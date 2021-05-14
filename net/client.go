@@ -420,7 +420,7 @@ func (s *server) exchangeEdges(ctx context.Context, pid peer.ID, tids []thread.I
 	// fill local edges
 	for _, tid := range tids {
 		switch addrsEdge, headsEdge, err := s.localEdges(tid); err {
-		// we have emptyEdgeValue for headsEdge and addrsEdge if we get errors below
+		// we have lstoreds.EmptyEdgeValue for headsEdge and addrsEdge if we get errors below
 		case errNoAddrsEdge, errNoHeadsEdge, nil:
 			body.Threads = append(body.Threads, &pb.ExchangeEdgesRequest_Body_ThreadEntry{
 				ThreadID:    &pb.ProtoThreadID{ID: tid},
@@ -474,13 +474,8 @@ func (s *server) exchangeEdges(ctx context.Context, pid peer.ID, tids []thread.I
 		return err
 	}
 
-	for i, e := range reply.GetEdges() {
-		var tid = body.Threads[i].ThreadID.ID
-		if !e.GetExists() {
-			log.With("thread", tid.String()).With("peer", pid.String()).Warnf("exchangeEdges got not existed thread")
-			// invariant: respondent itself must request missing thread info
-			continue
-		}
+	for _, e := range reply.GetEdges() {
+		tid := e.ThreadID.ID
 
 		// get local edges potentially updated by another process
 		addrsEdgeLocal, headsEdgeLocal, err := s.localEdges(tid)
@@ -491,21 +486,29 @@ func (s *server) exchangeEdges(ctx context.Context, pid peer.ID, tids []thread.I
 		}
 
 		responseEdge := e.GetAddressEdge()
-		if responseEdge != addrsEdgeLocal && responseEdge != lstoreds.EmptyEdgeValue {
-			if s.net.queueGetLogs.Schedule(pid, tid, callPriorityLow, s.net.updateLogsFromPeer) {
-				log.With("thread", tid.String()).With("peer", pid.String()).Debugf("log information update for thread scheduled")
+		// We only update the logs if we got non empty values and different hashes for addresses
+		// Note that previous versions also sent 0 (aka EmptyEdgeValue) values when the addresses
+		// were non-existent, so it shouldn't break backwards compatibility
+		if responseEdge != lstoreds.EmptyEdgeValue {
+			if responseEdge != addrsEdgeLocal {
+				if s.net.queueGetLogs.Schedule(pid, tid, callPriorityLow, s.net.updateLogsFromPeer) {
+					log.With("thread", tid.String()).With("peer", pid.String()).Debugf("log information update for thread scheduled")
+				}
 			}
 		}
 
 		responseEdge = e.GetHeadsEdge()
-		if responseEdge != headsEdgeLocal && responseEdge != lstoreds.EmptyEdgeValue {
-			if s.net.queueGetRecords.Schedule(pid, tid, callPriorityLow, s.net.updateRecordsFromPeer) {
-				log.With("thread", tid.String()).With("pid", pid.String()).Debugf("record update for thread scheduled")
+		// We only update the records if we got non empty values and different hashes for heads
+		if responseEdge != lstoreds.EmptyEdgeValue {
+			if responseEdge != headsEdgeLocal {
+				if s.net.queueGetRecords.Schedule(pid, tid, callPriorityLow, s.net.updateRecordsFromPeer) {
+					log.With("thread", tid.String()).With("pid", pid.String()).Debugf("record update for thread scheduled")
+				}
+			} else if registry := s.net.tStat; registry != nil {
+				// equal heads could be interpreted as successful upload/download
+				registry.Apply(pid, tid, threadStatusDownloadDone)
+				registry.Apply(pid, tid, threadStatusUploadDone)
 			}
-		} else if registry := s.net.tStat; registry != nil {
-			// equal heads could be interpreted as successful upload/download
-			registry.Apply(pid, tid, threadStatusDownloadDone)
-			registry.Apply(pid, tid, threadStatusUploadDone)
 		}
 	}
 
