@@ -344,9 +344,11 @@ func (s *server) ExchangeEdges(ctx context.Context, req *pb.ExchangeEdgesRequest
 			// need to get new logs only if we have non empty addresses on remote and the hashes are different
 			if addrsEdgeRemote != lstoreds.EmptyEdgeValue {
 				if addrsEdgeLocal != addrsEdgeRemote {
+					prt := callPriorityLow
 					updateLogs := s.net.updateLogsFromPeer
 					// if we don't have the thread locally
 					if addrsEdgeLocal == lstoreds.EmptyEdgeValue {
+						prt = callPriorityHigh
 						updateLogs = func(ctx context.Context, p peer.ID, t thread.ID) error {
 							if err := s.net.updateLogsFromPeer(ctx, p, t); err != nil {
 								return err
@@ -357,7 +359,7 @@ func (s *server) ExchangeEdges(ctx context.Context, req *pb.ExchangeEdgesRequest
 							return nil
 						}
 					}
-					if s.net.queueGetLogs.Schedule(pid, tid, callPriorityLow, updateLogs) {
+					if s.net.queueGetLogs.Schedule(pid, tid, prt, updateLogs) {
 						log.With("peer", pid.String()).With("thread", tid.String()).Debugf("log information update for thread %s from %s scheduled", tid, pid)
 					}
 				}
