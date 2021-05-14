@@ -1356,9 +1356,6 @@ PullCycle:
 					for _, pid := range peers {
 						compressor.Add(pid, tid)
 					}
-					if len(peers) == 0 {
-						compressor.Add("", tid)
-					}
 				}
 
 				idx++

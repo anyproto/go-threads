@@ -338,77 +338,56 @@ func (s *server) ExchangeEdges(ctx context.Context, req *pb.ExchangeEdgesRequest
 			headsEdgeRemote = entry.HeadsEdge
 		)
 		var tid = entry.ThreadID.ID
-		getLogs := func() {
-			s.net.queueGetLogs.Schedule(
-				pid,
-				tid,
-				callPriorityHigh, // we have to add thread in pubsub, not just update its logs
-				func(ctx context.Context, p peer.ID, t thread.ID) error {
-					if err := s.net.updateLogsFromPeer(ctx, p, t); err != nil {
-						return err
-					}
-					if s.net.server.ps != nil {
-						return s.net.server.ps.Add(t)
-					}
-					return nil
-				})
-		}
 
 		switch addrsEdgeLocal, headsEdgeLocal, err := s.localEdges(tid); err {
-		case nil:
-			if addrsEdgeLocal != addrsEdgeRemote {
-				if s.net.queueGetLogs.Schedule(pid, tid, callPriorityLow, s.net.updateLogsFromPeer) {
-					log.With("peer", pid.String()).With("thread", tid.String()).Debugf("log information update for thread %s from %s scheduled", tid, pid)
+		case errNoAddrsEdge, errNoHeadsEdge, nil:
+			// need to get new logs only if we have non empty addresses on remote and the hashes are different
+			if addrsEdgeRemote != lstoreds.EmptyEdgeValue {
+				if addrsEdgeLocal != addrsEdgeRemote {
+					updateLogs := s.net.updateLogsFromPeer
+					// if we don't have the thread locally
+					if addrsEdgeLocal == lstoreds.EmptyEdgeValue {
+						updateLogs = func(ctx context.Context, p peer.ID, t thread.ID) error {
+							if err := s.net.updateLogsFromPeer(ctx, p, t); err != nil {
+								return err
+							}
+							if s.net.server.ps != nil {
+								return s.net.server.ps.Add(t)
+							}
+							return nil
+						}
+					}
+					if s.net.queueGetLogs.Schedule(pid, tid, callPriorityLow, updateLogs) {
+						log.With("peer", pid.String()).With("thread", tid.String()).Debugf("log information update for thread %s from %s scheduled", tid, pid)
+					}
 				}
 			}
-			if headsEdgeLocal != headsEdgeRemote {
-				if s.net.queueGetRecords.Schedule(pid, tid, callPriorityLow, s.net.updateRecordsFromPeer) {
-					log.With("peer", pid.String()).With("thread", tid.String()).Debugf("record update for thread %s from %s scheduled", tid, pid)
+
+			// need to get new records only if we have non empty heads on remote and the hashes are different
+			if headsEdgeRemote != lstoreds.EmptyEdgeValue {
+				if headsEdgeLocal != headsEdgeRemote {
+					if s.net.queueGetRecords.Schedule(pid, tid, callPriorityLow, s.net.updateRecordsFromPeer) {
+						log.With("peer", pid.String()).With("thread", tid.String()).Debugf("record update for thread %s from %s scheduled", tid, pid)
+					}
+				} else if registry := s.net.tStat; registry != nil {
+					// equal heads could be interpreted as successful upload/download
+					registry.Apply(pid, tid, threadStatusDownloadDone)
+					registry.Apply(pid, tid, threadStatusUploadDone)
 				}
-			} else if registry := s.net.tStat; registry != nil {
-				// equal heads could be interpreted as successful upload/download
-				registry.Apply(pid, tid, threadStatusDownloadDone)
-				registry.Apply(pid, tid, threadStatusUploadDone)
+			}
+
+			// setting "exists" for backwards compatibility with older versions
+			// to get exactly same behaviour as was before
+			exists := true
+			if addrsEdgeLocal == lstoreds.EmptyEdgeValue || headsEdgeLocal == lstoreds.EmptyEdgeValue {
+				exists = false
 			}
 
 			reply.Edges = append(reply.Edges, &pb.ExchangeEdgesReply_ThreadEdges{
 				ThreadID:    &pb.ProtoThreadID{ID: tid},
-				Exists:      true,
+				Exists:      exists,
 				AddressEdge: addrsEdgeLocal,
 				HeadsEdge:   headsEdgeLocal,
-			})
-
-		case errNoAddrsEdge:
-			// requested thread doesn't exist locally
-			log.Errorf("addresses for requested thread %s not found", tid)
-			// if remote log exists
-			if addrsEdgeRemote != lstoreds.EmptyEdgeValue {
-				getLogs()
-			}
-			reply.Edges = append(reply.Edges, &pb.ExchangeEdgesReply_ThreadEdges{
-				ThreadID:    &pb.ProtoThreadID{ID: tid},
-				Exists:      false,
-				AddressEdge: lstoreds.EmptyEdgeValue,
-				HeadsEdge:   lstoreds.EmptyEdgeValue,
-			})
-
-		case errNoHeadsEdge:
-			// thread exists locally and contains addresses, but not heads - pull records for update
-			log.With("thread", tid.String()).Errorf("heads for requested thread not found")
-			// if remote records exist
-			if headsEdgeRemote != lstoreds.EmptyEdgeValue {
-				s.net.queueGetRecords.Schedule(pid, tid, callPriorityLow, s.net.updateRecordsFromPeer)
-			}
-			// there is a possibility that not all logs belonging to other peer will have entries in them
-			// still it would be good to get them
-			if addrsEdgeRemote != lstoreds.EmptyEdgeValue {
-				getLogs()
-			}
-			reply.Edges = append(reply.Edges, &pb.ExchangeEdgesReply_ThreadEdges{
-				ThreadID:    &pb.ProtoThreadID{ID: tid},
-				Exists:      false,
-				AddressEdge: addrsEdgeLocal,
-				HeadsEdge:   lstoreds.EmptyEdgeValue,
 			})
 
 		default:
