@@ -1080,7 +1080,7 @@ func (m *ExchangeEdgesReply) GetEdges() []*ExchangeEdgesReply_ThreadEdges {
 type ExchangeEdgesReply_ThreadEdges struct {
 	// threadID is the requested thread's ID.
 	ThreadID *ProtoThreadID `protobuf:"bytes,1,opt,name=threadID,proto3,customtype=ProtoThreadID" json:"threadID,omitempty"`
-	// exists is the flag indicating whether the requested thread exists on a respondent.
+	// deprecated, use default values for addressEdge and headsEdge
 	Exists bool `protobuf:"varint,2,opt,name=exists,proto3" json:"exists,omitempty"`
 	// addressEdge is the current hash of peers addresses stored on a respondent.
 	AddressEdge uint64 `protobuf:"varint,3,opt,name=addressEdge,proto3" json:"addressEdge,omitempty"`
@@ -3399,10 +3399,7 @@ func (m *Header) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthNet
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthNet
 			}
 			if (iNdEx + skippy) > l {
@@ -3592,10 +3589,7 @@ func (m *Log) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthNet
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthNet
 			}
 			if (iNdEx + skippy) > l {
@@ -3781,10 +3775,7 @@ func (m *Log_Record) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthNet
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthNet
 			}
 			if (iNdEx + skippy) > l {
@@ -3906,10 +3897,7 @@ func (m *GetLogsRequest) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthNet
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthNet
 			}
 			if (iNdEx + skippy) > l {
@@ -4029,10 +4017,7 @@ func (m *GetLogsRequest_Body) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthNet
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthNet
 			}
 			if (iNdEx + skippy) > l {
@@ -4116,10 +4101,7 @@ func (m *GetLogsReply) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthNet
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthNet
 			}
 			if (iNdEx + skippy) > l {
@@ -4241,10 +4223,7 @@ func (m *PushLogRequest) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthNet
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthNet
 			}
 			if (iNdEx + skippy) > l {
@@ -4435,10 +4414,7 @@ func (m *PushLogRequest_Body) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthNet
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthNet
 			}
 			if (iNdEx + skippy) > l {
@@ -4488,10 +4464,7 @@ func (m *PushLogReply) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthNet
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthNet
 			}
 			if (iNdEx + skippy) > l {
@@ -4613,10 +4586,7 @@ func (m *GetRecordsRequest) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthNet
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthNet
 			}
 			if (iNdEx + skippy) > l {
@@ -4770,10 +4740,7 @@ func (m *GetRecordsRequest_Body) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthNet
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthNet
 			}
 			if (iNdEx + skippy) > l {
@@ -4912,10 +4879,7 @@ func (m *GetRecordsRequest_Body_LogEntry) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthNet
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthNet
 			}
 			if (iNdEx + skippy) > l {
@@ -4999,10 +4963,7 @@ func (m *GetRecordsReply) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthNet
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthNet
 			}
 			if (iNdEx + skippy) > l {
@@ -5157,10 +5118,7 @@ func (m *GetRecordsReply_LogEntry) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthNet
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthNet
 			}
 			if (iNdEx + skippy) > l {
@@ -5282,10 +5240,7 @@ func (m *PushRecordRequest) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthNet
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthNet
 			}
 			if (iNdEx + skippy) > l {
@@ -5441,10 +5396,7 @@ func (m *PushRecordRequest_Body) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthNet
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthNet
 			}
 			if (iNdEx + skippy) > l {
@@ -5494,10 +5446,7 @@ func (m *PushRecordReply) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthNet
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthNet
 			}
 			if (iNdEx + skippy) > l {
@@ -5619,10 +5568,7 @@ func (m *ExchangeEdgesRequest) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthNet
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthNet
 			}
 			if (iNdEx + skippy) > l {
@@ -5706,10 +5652,7 @@ func (m *ExchangeEdgesRequest_Body) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthNet
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthNet
 			}
 			if (iNdEx + skippy) > l {
@@ -5832,10 +5775,7 @@ func (m *ExchangeEdgesRequest_Body_ThreadEntry) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthNet
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthNet
 			}
 			if (iNdEx + skippy) > l {
@@ -5919,10 +5859,7 @@ func (m *ExchangeEdgesReply) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthNet
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthNet
 			}
 			if (iNdEx + skippy) > l {
@@ -6065,10 +6002,7 @@ func (m *ExchangeEdgesReply_ThreadEdges) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthNet
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthNet
 			}
 			if (iNdEx + skippy) > l {
