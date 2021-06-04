@@ -18,6 +18,7 @@ import (
 	lstore "github.com/textileio/go-threads/core/logstore"
 	"github.com/textileio/go-threads/core/thread"
 	"github.com/textileio/go-threads/logstore/lstoreds"
+	"github.com/textileio/go-threads/metrics"
 	pb "github.com/textileio/go-threads/net/pb"
 	"github.com/textileio/go-threads/util"
 	"google.golang.org/grpc"
@@ -315,6 +316,7 @@ func (s *server) PushRecord(ctx context.Context, req *pb.PushRecordRequest) (*pb
 		defer func() { registry.Apply(pid, tid, final) }()
 	}
 
+	ctx = context.WithValue(ctx, recordPutOriginKey{}, metrics.RecordTypePush)
 	if err = s.net.PutRecord(ctx, tid, req.Body.LogID.ID, rec); err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
