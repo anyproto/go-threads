@@ -82,6 +82,7 @@ func newServer(n *net, enablePubSub bool, opts ...grpc.DialOption) (*server, err
 
 // pubsubHandler receives records over pubsub.
 func (s *server) pubsubHandler(ctx context.Context, req *pb.PushRecordRequest) {
+	ctx = context.WithValue(ctx, recordPutOriginKey{}, metrics.RecordTypePubsub)
 	if _, err := s.PushRecord(ctx, req); err != nil {
 		// This error will be "log not found" if the record sent over pubsub
 		// beat the log, which has to be sent directly via the normal API.
@@ -316,7 +317,10 @@ func (s *server) PushRecord(ctx context.Context, req *pb.PushRecordRequest) (*pb
 		defer func() { registry.Apply(pid, tid, final) }()
 	}
 
-	ctx = context.WithValue(ctx, recordPutOriginKey{}, metrics.RecordTypePush)
+	// if it is not a pubsub then it is a push
+	if ctx.Value(recordPutOriginKey{}) == nil {
+		ctx = context.WithValue(ctx, recordPutOriginKey{}, metrics.RecordTypePush)
+	}
 	if err = s.net.PutRecord(ctx, tid, req.Body.LogID.ID, rec); err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}

@@ -7,6 +7,7 @@ type RecordType int
 const (
 	RecordTypePush RecordType = iota
 	RecordTypeGet
+	RecordTypePubsub
 )
 
 type Metrics interface {
