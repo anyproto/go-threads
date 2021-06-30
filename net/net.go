@@ -59,6 +59,8 @@ var (
 
 	// tokenChallengeTimeout is the duration of time given to an identity to complete a token challenge.
 	tokenChallengeTimeout = time.Minute
+
+	ErrSyncTrackingDisabled = errors.New("synchronization tracking disabled")
 )
 
 const (
@@ -84,8 +86,10 @@ type net struct {
 	format.DAGService
 	host   host.Host
 	bstore bs.Blockstore
+	store  lstore.Logstore
 
-	store lstore.Logstore
+	tStat     *threadStatusRegistry
+	connTrack *connTracker
 
 	rpc    *grpc.Server
 	server *server
@@ -112,6 +116,8 @@ type Config struct {
 	NoExchangeEdgesMigration  bool
 	PubSub                    bool
 	Debug                     bool
+	SyncBook     lstore.SyncBook
+	SyncTracking bool
 }
 
 func (c Config) Validate() error {
@@ -177,6 +183,13 @@ func NewNetwork(
 	n.server, err = newServer(n, dialOptions...)
 	if err != nil {
 		return nil, err
+	}
+
+	if conf.SyncTracking {
+		t.connTrack = NewConnTracker(h.Network())
+		if t.tStat, err = NewThreadStatusRegistry(conf.SyncBook, t.connTrack.Track); err != nil {
+			return nil, fmt.Errorf("thread status registry init failed: %w", err)
+		}
 	}
 
 	listener, err := gostream.Listen(h, thread.Protocol)
@@ -290,6 +303,16 @@ func (n *net) Close() (err error) {
 		}
 	}
 	tu.StopGRPCServer(n.rpc)
+
+	if n.connTrack != nil {
+		n.connTrack.Close()
+	}
+
+	if n.tStat != nil {
+		if err := n.tStat.Close(); err != nil {
+			log.Errorf("error closing thread status registry: %v", err)
+		}
+	}
 
 	var errs []error
 	weakClose := func(name string, c interface{}) {
