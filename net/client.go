@@ -198,6 +198,13 @@ func (s *server) getRecordsFromPeer(
 	serviceKey *sym.Key,
 ) (map[peer.ID]peerRecords, error) {
 	log.Debugf("getting records from %s...", pid)
+
+	var final = threadStatusDownloadFailed
+	if registry := s.net.tStat; registry != nil {
+		registry.Apply(pid, tid, threadStatusDownloadStarted)
+		defer func() { registry.Apply(pid, tid, final) }()
+	}
+
 	client, err := s.dial(pid)
 	if err != nil {
 		return nil, fmt.Errorf("dial %s failed: %w", pid, err)
@@ -254,6 +261,7 @@ func (s *server) getRecordsFromPeer(
 		}
 	}
 
+	final = threadStatusDownloadDone
 	return recs, nil
 }
 
@@ -312,6 +320,12 @@ func (s *server) pushRecordToPeer(
 	tid thread.ID,
 	lid peer.ID,
 ) error {
+	var final = threadStatusUploadFailed
+	if registry := s.net.tStat; registry != nil {
+		registry.Apply(pid, tid, threadStatusUploadStarted)
+		defer func() { registry.Apply(pid, tid, final) }()
+	}
+
 	client, err := s.dial(pid)
 	if err != nil {
 		return fmt.Errorf("dial failed: %w", err)
@@ -320,6 +334,7 @@ func (s *server) pushRecordToPeer(
 	defer cancel()
 	_, err = client.PushRecord(rctx, req)
 	if err == nil {
+		final = threadStatusUploadDone
 		return nil
 	}
 
@@ -346,6 +361,10 @@ func (s *server) pushRecordToPeer(
 		if _, err = client.PushLog(lctx, lreq); err != nil {
 			return fmt.Errorf("pushing missing log: %w", err)
 		}
+
+		final = threadStatusUploadDone
+		// we do not need to do a repush here, because other side will initiate do the getRecords from their side after receiving the new log
+
 		return nil
 
 	default:
@@ -430,9 +449,15 @@ func (s *server) exchangeEdges(ctx context.Context, pid peer.ID, tids []thread.I
 
 		responseEdge = e.GetHeadsEdge()
 		// We only update the records if we got non empty values and different hashes for heads
-		if responseEdge != lstoreds.EmptyEdgeValue && responseEdge != headsEdgeLocal {
-			if s.net.queueGetRecords.Schedule(pid, tid, callPriorityLow, s.net.updateRecordsFromPeer) {
-				log.Debugf("record update for thread %s from %s scheduled", tid, pid)
+		if responseEdge != lstoreds.EmptyEdgeValue {
+			if responseEdge != headsEdgeLocal {
+				if s.net.queueGetRecords.Schedule(pid, tid, callPriorityLow, s.net.updateRecordsFromPeer) {
+					log.With("thread", tid.String()).With("pid", pid.String()).Debugf("record update for thread scheduled")
+				}
+			} else if registry := s.net.tStat; registry != nil {
+				// equal heads could be interpreted as successful upload/download
+				registry.Apply(pid, tid, threadStatusDownloadDone)
+				registry.Apply(pid, tid, threadStatusUploadDone)
 			}
 		}
 	}
