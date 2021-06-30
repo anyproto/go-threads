@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/gogo/status"
 	"github.com/ipfs/go-cid"
@@ -192,6 +193,7 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 
 	var (
 		logRecordLimit = MaxPullLimit / len(info.Logs)
+		failures       int32
 		mx             sync.Mutex
 		wg             sync.WaitGroup
 	)
@@ -223,6 +225,7 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 
 			recs, err := s.net.getLocalRecords(ctx, tid, lid, off, lim, counter)
 			if err != nil {
+				atomic.AddInt32(&failures, 1)
 				log.Errorf("getting local records (thread %s, log %s): %v", tid, lid, err)
 			}
 
@@ -230,6 +233,7 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 			for _, r := range recs {
 				pr, err := cbor.RecordToProto(ctx, s.net, r)
 				if err != nil {
+					atomic.AddInt32(&failures, 1)
 					log.Errorf("constructing proto-record %s (thread %s, log %s): %v", r.Cid(), tid, lid, err)
 					break
 				}
@@ -254,6 +258,12 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 	}
 
 	wg.Wait()
+
+	if registry := s.net.tStat; registry != nil && failures == 0 {
+		// if requester was able to receive our latest records its
+		// equivalent to successful push in the reverse direction
+		registry.Apply(pid, req.Body.ThreadID.ID, threadStatusUploadDone)
+	}
 	return pbrecs, nil
 }
 
@@ -286,9 +296,20 @@ func (s *server) PushRecord(ctx context.Context, req *pb.PushRecordRequest) (*pb
 	if err = rec.Verify(logpk); err != nil {
 		return nil, status.Error(codes.Unauthenticated, err.Error())
 	}
+
+	var final = threadStatusDownloadFailed
+	if registry := s.net.tStat; registry != nil {
+		// receiving and successful processing records is equivalent to pulling from the peer
+		registry.Apply(pid, req.Body.ThreadID.ID, threadStatusDownloadStarted)
+		defer func() { registry.Apply(pid, req.Body.ThreadID.ID, final) }()
+	}
+
 	if err = s.net.PutRecord(ctx, req.Body.ThreadID.ID, req.Body.LogID.ID, rec, req.Counter); err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
+
+	final = threadStatusDownloadDone
+
 	return &pb.PushRecordReply{}, nil
 }
 
@@ -333,9 +354,15 @@ func (s *server) ExchangeEdges(ctx context.Context, req *pb.ExchangeEdgesRequest
 			}
 
 			// need to get new records only if we have non empty heads on remote and the hashes are different
-			if headsEdgeRemote != lstoreds.EmptyEdgeValue && headsEdgeLocal != headsEdgeRemote {
-				if s.net.queueGetRecords.Schedule(pid, tid, callPriorityLow, s.net.updateRecordsFromPeer) {
-					log.Debugf("record update for thread %s from %s scheduled", tid, pid)
+			if headsEdgeRemote != lstoreds.EmptyEdgeValue {
+				if headsEdgeLocal != headsEdgeRemote {
+					if s.net.queueGetRecords.Schedule(pid, tid, callPriorityLow, s.net.updateRecordsFromPeer) {
+						log.With("peer", pid.String()).With("thread", tid.String()).Debugf("record update for thread %s from %s scheduled", tid, pid)
+					}
+				} else if registry := s.net.tStat; registry != nil {
+					// equal heads could be interpreted as successful upload/download
+					registry.Apply(pid, tid, threadStatusDownloadDone)
+					registry.Apply(pid, tid, threadStatusUploadDone)
 				}
 			}
 
