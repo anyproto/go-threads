@@ -221,39 +221,163 @@ func (m *HeadBookRecord_HeadEntry) GetCounter() int64 {
 	return 0
 }
 
+type SyncBookRecord struct {
+	// The peer ID.
+	PeerID *ProtoPeerID `protobuf:"bytes,1,opt,name=peerID,proto3,customtype=ProtoPeerID" json:"peerID,omitempty"`
+	// The sync information for threads.
+	Entries []*SyncBookRecord_SyncEntry `protobuf:"bytes,2,rep,name=entries,proto3" json:"entries,omitempty"`
+}
+
+func (m *SyncBookRecord) Reset()         { *m = SyncBookRecord{} }
+func (m *SyncBookRecord) String() string { return proto.CompactTextString(m) }
+func (*SyncBookRecord) ProtoMessage()    {}
+func (*SyncBookRecord) Descriptor() ([]byte, []int) {
+	return fileDescriptor_804c9876c53f6037, []int{2}
+}
+func (m *SyncBookRecord) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *SyncBookRecord) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_SyncBookRecord.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *SyncBookRecord) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_SyncBookRecord.Merge(m, src)
+}
+func (m *SyncBookRecord) XXX_Size() int {
+	return m.Size()
+}
+func (m *SyncBookRecord) XXX_DiscardUnknown() {
+	xxx_messageInfo_SyncBookRecord.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_SyncBookRecord proto.InternalMessageInfo
+
+func (m *SyncBookRecord) GetEntries() []*SyncBookRecord_SyncEntry {
+	if m != nil {
+		return m.Entries
+	}
+	return nil
+}
+
+// SyncEntry represents sync information for some thread hash.
+type SyncBookRecord_SyncEntry struct {
+	THash      uint64 `protobuf:"varint,1,opt,name=tHash,proto3" json:"tHash,omitempty"`
+	UpStatus   uint32 `protobuf:"varint,2,opt,name=upStatus,proto3" json:"upStatus,omitempty"`
+	DownStatus uint32 `protobuf:"varint,3,opt,name=downStatus,proto3" json:"downStatus,omitempty"`
+	LastPull   int64  `protobuf:"varint,4,opt,name=lastPull,proto3" json:"lastPull,omitempty"`
+}
+
+func (m *SyncBookRecord_SyncEntry) Reset()         { *m = SyncBookRecord_SyncEntry{} }
+func (m *SyncBookRecord_SyncEntry) String() string { return proto.CompactTextString(m) }
+func (*SyncBookRecord_SyncEntry) ProtoMessage()    {}
+func (*SyncBookRecord_SyncEntry) Descriptor() ([]byte, []int) {
+	return fileDescriptor_804c9876c53f6037, []int{2, 0}
+}
+func (m *SyncBookRecord_SyncEntry) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *SyncBookRecord_SyncEntry) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_SyncBookRecord_SyncEntry.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *SyncBookRecord_SyncEntry) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_SyncBookRecord_SyncEntry.Merge(m, src)
+}
+func (m *SyncBookRecord_SyncEntry) XXX_Size() int {
+	return m.Size()
+}
+func (m *SyncBookRecord_SyncEntry) XXX_DiscardUnknown() {
+	xxx_messageInfo_SyncBookRecord_SyncEntry.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_SyncBookRecord_SyncEntry proto.InternalMessageInfo
+
+func (m *SyncBookRecord_SyncEntry) GetTHash() uint64 {
+	if m != nil {
+		return m.THash
+	}
+	return 0
+}
+
+func (m *SyncBookRecord_SyncEntry) GetUpStatus() uint32 {
+	if m != nil {
+		return m.UpStatus
+	}
+	return 0
+}
+
+func (m *SyncBookRecord_SyncEntry) GetDownStatus() uint32 {
+	if m != nil {
+		return m.DownStatus
+	}
+	return 0
+}
+
+func (m *SyncBookRecord_SyncEntry) GetLastPull() int64 {
+	if m != nil {
+		return m.LastPull
+	}
+	return 0
+}
+
 func init() {
 	proto.RegisterType((*AddrBookRecord)(nil), "net.pb.AddrBookRecord")
 	proto.RegisterType((*AddrBookRecord_AddrEntry)(nil), "net.pb.AddrBookRecord.AddrEntry")
 	proto.RegisterType((*HeadBookRecord)(nil), "net.pb.HeadBookRecord")
 	proto.RegisterType((*HeadBookRecord_HeadEntry)(nil), "net.pb.HeadBookRecord.HeadEntry")
+	proto.RegisterType((*SyncBookRecord)(nil), "net.pb.SyncBookRecord")
+	proto.RegisterType((*SyncBookRecord_SyncEntry)(nil), "net.pb.SyncBookRecord.SyncEntry")
 }
 
 func init() { proto.RegisterFile("lstore.proto", fileDescriptor_804c9876c53f6037) }
 
 var fileDescriptor_804c9876c53f6037 = []byte{
-	// 347 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x54, 0x91, 0xcf, 0x4e, 0xea, 0x40,
-	0x18, 0xc5, 0x99, 0xdb, 0x4b, 0x2f, 0x7c, 0xfc, 0xb9, 0x3a, 0x0b, 0xd3, 0xb0, 0x98, 0x56, 0x36,
-	0xb2, 0xa1, 0x24, 0x9a, 0xb0, 0x17, 0x21, 0x91, 0x1d, 0x69, 0x5c, 0xb8, 0x6d, 0x3b, 0x23, 0x34,
-	0x22, 0xd3, 0x0c, 0x43, 0x22, 0x4f, 0xa1, 0x8f, 0xe4, 0xd2, 0x25, 0x4b, 0xd3, 0x45, 0xa3, 0xe5,
-	0x25, 0x8c, 0x2b, 0xd3, 0x8f, 0x4a, 0x64, 0x37, 0xe7, 0x9c, 0x5f, 0x33, 0xbf, 0x66, 0xa0, 0x3e,
-	0x5f, 0x6a, 0xa9, 0x84, 0x1b, 0x2b, 0xa9, 0x25, 0x35, 0x17, 0x42, 0xbb, 0x71, 0xd0, 0xea, 0x4e,
-	0x23, 0x3d, 0x5b, 0x05, 0x6e, 0x28, 0x1f, 0x7a, 0x53, 0x39, 0x95, 0x3d, 0x9c, 0x83, 0xd5, 0x1d,
-	0x26, 0x0c, 0x78, 0xda, 0x7d, 0xd6, 0xfe, 0x22, 0xd0, 0xbc, 0xe4, 0x5c, 0x0d, 0xa4, 0xbc, 0xf7,
-	0x44, 0x28, 0x15, 0xa7, 0x5d, 0xa8, 0xe8, 0x99, 0x12, 0x3e, 0x1f, 0x0f, 0x2d, 0xe2, 0x90, 0x4e,
-	0x7d, 0x70, 0x9c, 0xa4, 0x76, 0x63, 0x92, 0xf3, 0x37, 0xc5, 0xe0, 0xed, 0x11, 0x7a, 0x06, 0x66,
-	0x2c, 0x84, 0x1a, 0x0f, 0xad, 0x3f, 0x08, 0xff, 0x4f, 0x52, 0xbb, 0x86, 0xf0, 0x04, 0x6b, 0xaf,
-	0x98, 0x69, 0x1f, 0xca, 0x3e, 0xe7, 0x6a, 0x69, 0x19, 0x8e, 0xd1, 0xa9, 0x9d, 0x3b, 0xee, 0xce,
-	0xd8, 0x3d, 0xbc, 0x1e, 0xe3, 0x68, 0xa1, 0xd5, 0xda, 0xdb, 0xe1, 0xad, 0x5b, 0xa8, 0xee, 0x3b,
-	0x7a, 0x0a, 0x7f, 0xf3, 0xb6, 0x10, 0x6b, 0x24, 0xa9, 0x5d, 0xc5, 0xbb, 0x72, 0xc2, 0xc3, 0x89,
-	0x9e, 0x80, 0x29, 0x1e, 0xe3, 0x48, 0xad, 0x51, 0xc8, 0xf0, 0x8a, 0x44, 0x8f, 0xc0, 0xd0, 0x7a,
-	0x6e, 0x19, 0x58, 0xe6, 0xc7, 0xf6, 0x13, 0x81, 0xe6, 0xb5, 0xf0, 0xf9, 0xaf, 0x9f, 0xef, 0x43,
-	0x79, 0x26, 0x7c, 0xbe, 0xb4, 0xc8, 0xa1, 0xe4, 0x21, 0x86, 0xb1, 0x90, 0x44, 0xbc, 0x35, 0x82,
-	0xea, 0xbe, 0xa3, 0x0c, 0x8c, 0x30, 0xe2, 0x85, 0x63, 0x3d, 0x49, 0xed, 0x0a, 0x3a, 0x5e, 0x45,
-	0xdc, 0xcb, 0x07, 0x6a, 0xc1, 0xbf, 0x50, 0xae, 0x16, 0x5a, 0xa8, 0x42, 0xf1, 0x27, 0x0e, 0x9c,
-	0xcf, 0x0f, 0x46, 0x5e, 0x32, 0x46, 0x5e, 0x33, 0x46, 0x36, 0x19, 0x23, 0xef, 0x19, 0x23, 0xcf,
-	0x5b, 0x56, 0xda, 0x6c, 0x59, 0xe9, 0x6d, 0xcb, 0x4a, 0x81, 0x89, 0xef, 0x76, 0xf1, 0x1d, 0x00,
-	0x00, 0xff, 0xff, 0x61, 0xbd, 0x2f, 0x88, 0xfe, 0x01, 0x00, 0x00,
+	// 442 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x7c, 0x92, 0xbf, 0x6f, 0xd3, 0x40,
+	0x14, 0xc7, 0x73, 0x75, 0x92, 0x26, 0xaf, 0x49, 0x80, 0x13, 0x42, 0x27, 0x0f, 0x97, 0x90, 0x85,
+	0x2e, 0x75, 0x25, 0x90, 0x3a, 0xb0, 0x11, 0x5a, 0xa9, 0xdd, 0xa2, 0x2b, 0x03, 0xab, 0xe3, 0x3b,
+	0x12, 0x0b, 0xe3, 0xb3, 0xce, 0x67, 0x41, 0xfe, 0x0a, 0xf8, 0x93, 0x18, 0x19, 0x3b, 0xa2, 0x0c,
+	0x11, 0x24, 0xff, 0x00, 0x23, 0x62, 0x42, 0x7e, 0xbe, 0x9a, 0x78, 0x61, 0xbb, 0xef, 0x8f, 0xe7,
+	0xf7, 0xb9, 0x93, 0x61, 0x90, 0xe4, 0x56, 0x1b, 0x15, 0x64, 0x46, 0x5b, 0x4d, 0xbb, 0xa9, 0xb2,
+	0x41, 0xb6, 0xf0, 0xcf, 0x96, 0xb1, 0x5d, 0x15, 0x8b, 0x20, 0xd2, 0x1f, 0xce, 0x97, 0x7a, 0xa9,
+	0xcf, 0x31, 0x5e, 0x14, 0xef, 0x50, 0xa1, 0xc0, 0x53, 0x35, 0x36, 0xfd, 0x43, 0x60, 0xf4, 0x4a,
+	0x4a, 0x33, 0xd3, 0xfa, 0xbd, 0x50, 0x91, 0x36, 0x92, 0x9e, 0x41, 0xcf, 0xae, 0x8c, 0x0a, 0xe5,
+	0xcd, 0x25, 0x23, 0x13, 0x72, 0x3a, 0x98, 0x3d, 0xda, 0x6c, 0xc7, 0xc3, 0x79, 0xd9, 0x7f, 0xe3,
+	0x02, 0x51, 0x57, 0xe8, 0x33, 0xe8, 0x66, 0x4a, 0x99, 0x9b, 0x4b, 0x76, 0x84, 0xe5, 0x07, 0x9b,
+	0xed, 0xf8, 0x04, 0xcb, 0x73, 0xb4, 0x85, 0x8b, 0xe9, 0x05, 0x74, 0x42, 0x29, 0x4d, 0xce, 0xbc,
+	0x89, 0x77, 0x7a, 0xf2, 0x7c, 0x12, 0x54, 0xc4, 0x41, 0x73, 0x3d, 0xca, 0xab, 0xd4, 0x9a, 0xb5,
+	0xa8, 0xea, 0xfe, 0x5b, 0xe8, 0xd7, 0x1e, 0x7d, 0x0a, 0xed, 0xd2, 0x75, 0x60, 0xc3, 0xcd, 0x76,
+	0xdc, 0xc7, 0x5d, 0x65, 0x43, 0x60, 0x44, 0x9f, 0x40, 0x57, 0x7d, 0xca, 0x62, 0xb3, 0x46, 0x20,
+	0x4f, 0x38, 0x45, 0x1f, 0x82, 0x67, 0x6d, 0xc2, 0x3c, 0x34, 0xcb, 0xe3, 0xf4, 0x33, 0x81, 0xd1,
+	0xb5, 0x0a, 0xe5, 0xc1, 0xe5, 0x2f, 0xa0, 0xb3, 0x52, 0xa1, 0xcc, 0x19, 0x69, 0x42, 0x36, 0x6b,
+	0x28, 0x1d, 0x24, 0xd6, 0xfd, 0x2b, 0xe8, 0xd7, 0x1e, 0xe5, 0xe0, 0x45, 0xb1, 0x74, 0x8c, 0x83,
+	0xcd, 0x76, 0xdc, 0x43, 0xc6, 0xd7, 0xb1, 0x14, 0x65, 0x40, 0x19, 0x1c, 0x47, 0xba, 0x48, 0xad,
+	0x32, 0x0e, 0xf1, 0x5e, 0x4e, 0x7f, 0x11, 0x18, 0xdd, 0xae, 0xd3, 0xe8, 0x80, 0xe8, 0xdf, 0xfb,
+	0x92, 0xff, 0xbf, 0xef, 0x4b, 0x38, 0x56, 0xa9, 0x35, 0xb1, 0xca, 0xd9, 0x51, 0x13, 0xbe, 0xf9,
+	0x45, 0x94, 0x15, 0xfc, 0xfd, 0x80, 0xbf, 0x86, 0x7e, 0xed, 0xd2, 0xc7, 0xd0, 0xb1, 0xd7, 0x61,
+	0xbe, 0xc2, 0x85, 0x6d, 0x51, 0x09, 0xea, 0x43, 0xaf, 0xc8, 0x6e, 0x6d, 0x68, 0x8b, 0x1c, 0xa9,
+	0x87, 0xa2, 0xd6, 0x94, 0x03, 0x48, 0xfd, 0x31, 0x75, 0xa9, 0x87, 0xe9, 0x81, 0x53, 0xce, 0x26,
+	0x61, 0x6e, 0xe7, 0x45, 0x92, 0xb0, 0x36, 0xde, 0xb8, 0xd6, 0xb3, 0xc9, 0xef, 0x9f, 0x9c, 0x7c,
+	0xdd, 0x71, 0xf2, 0x6d, 0xc7, 0xc9, 0xdd, 0x8e, 0x93, 0x1f, 0x3b, 0x4e, 0xbe, 0xec, 0x79, 0xeb,
+	0x6e, 0xcf, 0x5b, 0xdf, 0xf7, 0xbc, 0xb5, 0xe8, 0xe2, 0xaf, 0xfa, 0xe2, 0x6f, 0x00, 0x00, 0x00,
+	0xff, 0xff, 0x33, 0x58, 0x50, 0xb6, 0xf1, 0x02, 0x00, 0x00,
 }
 
 func (m *AddrBookRecord) Marshal() (dAtA []byte, err error) {
@@ -439,6 +563,98 @@ func (m *HeadBookRecord_HeadEntry) MarshalToSizedBuffer(dAtA []byte) (int, error
 	return len(dAtA) - i, nil
 }
 
+func (m *SyncBookRecord) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *SyncBookRecord) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *SyncBookRecord) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if len(m.Entries) > 0 {
+		for iNdEx := len(m.Entries) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Entries[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintLstore(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x12
+		}
+	}
+	if m.PeerID != nil {
+		{
+			size := m.PeerID.Size()
+			i -= size
+			if _, err := m.PeerID.MarshalTo(dAtA[i:]); err != nil {
+				return 0, err
+			}
+			i = encodeVarintLstore(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *SyncBookRecord_SyncEntry) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *SyncBookRecord_SyncEntry) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *SyncBookRecord_SyncEntry) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.LastPull != 0 {
+		i = encodeVarintLstore(dAtA, i, uint64(m.LastPull))
+		i--
+		dAtA[i] = 0x20
+	}
+	if m.DownStatus != 0 {
+		i = encodeVarintLstore(dAtA, i, uint64(m.DownStatus))
+		i--
+		dAtA[i] = 0x18
+	}
+	if m.UpStatus != 0 {
+		i = encodeVarintLstore(dAtA, i, uint64(m.UpStatus))
+		i--
+		dAtA[i] = 0x10
+	}
+	if m.THash != 0 {
+		i = encodeVarintLstore(dAtA, i, uint64(m.THash))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
+}
+
 func encodeVarintLstore(dAtA []byte, offset int, v uint64) int {
 	offset -= sovLstore(v)
 	base := offset
@@ -508,6 +724,35 @@ func NewPopulatedHeadBookRecord_HeadEntry(r randyLstore, easy bool) *HeadBookRec
 	return this
 }
 
+func NewPopulatedSyncBookRecord(r randyLstore, easy bool) *SyncBookRecord {
+	this := &SyncBookRecord{}
+	this.PeerID = NewPopulatedProtoPeerID(r)
+	if r.Intn(5) != 0 {
+		v3 := r.Intn(5)
+		this.Entries = make([]*SyncBookRecord_SyncEntry, v3)
+		for i := 0; i < v3; i++ {
+			this.Entries[i] = NewPopulatedSyncBookRecord_SyncEntry(r, easy)
+		}
+	}
+	if !easy && r.Intn(10) != 0 {
+	}
+	return this
+}
+
+func NewPopulatedSyncBookRecord_SyncEntry(r randyLstore, easy bool) *SyncBookRecord_SyncEntry {
+	this := &SyncBookRecord_SyncEntry{}
+	this.THash = uint64(uint64(r.Uint32()))
+	this.UpStatus = uint32(r.Uint32())
+	this.DownStatus = uint32(r.Uint32())
+	this.LastPull = int64(r.Int63())
+	if r.Intn(2) == 0 {
+		this.LastPull *= -1
+	}
+	if !easy && r.Intn(10) != 0 {
+	}
+	return this
+}
+
 type randyLstore interface {
 	Float32() float32
 	Float64() float64
@@ -527,9 +772,9 @@ func randUTF8RuneLstore(r randyLstore) rune {
 	return rune(ru + 61)
 }
 func randStringLstore(r randyLstore) string {
-	v3 := r.Intn(100)
-	tmps := make([]rune, v3)
-	for i := 0; i < v3; i++ {
+	v4 := r.Intn(100)
+	tmps := make([]rune, v4)
+	for i := 0; i < v4; i++ {
 		tmps[i] = randUTF8RuneLstore(r)
 	}
 	return string(tmps)
@@ -551,11 +796,11 @@ func randFieldLstore(dAtA []byte, r randyLstore, fieldNumber int, wire int) []by
 	switch wire {
 	case 0:
 		dAtA = encodeVarintPopulateLstore(dAtA, uint64(key))
-		v4 := r.Int63()
+		v5 := r.Int63()
 		if r.Intn(2) == 0 {
-			v4 *= -1
+			v5 *= -1
 		}
-		dAtA = encodeVarintPopulateLstore(dAtA, uint64(v4))
+		dAtA = encodeVarintPopulateLstore(dAtA, uint64(v5))
 	case 1:
 		dAtA = encodeVarintPopulateLstore(dAtA, uint64(key))
 		dAtA = append(dAtA, byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)), byte(r.Intn(256)))
@@ -649,6 +894,46 @@ func (m *HeadBookRecord_HeadEntry) Size() (n int) {
 	}
 	if m.Counter != 0 {
 		n += 1 + sovLstore(uint64(m.Counter))
+	}
+	return n
+}
+
+func (m *SyncBookRecord) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.PeerID != nil {
+		l = m.PeerID.Size()
+		n += 1 + l + sovLstore(uint64(l))
+	}
+	if len(m.Entries) > 0 {
+		for _, e := range m.Entries {
+			l = e.Size()
+			n += 1 + l + sovLstore(uint64(l))
+		}
+	}
+	return n
+}
+
+func (m *SyncBookRecord_SyncEntry) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.THash != 0 {
+		n += 1 + sovLstore(uint64(m.THash))
+	}
+	if m.UpStatus != 0 {
+		n += 1 + sovLstore(uint64(m.UpStatus))
+	}
+	if m.DownStatus != 0 {
+		n += 1 + sovLstore(uint64(m.DownStatus))
+	}
+	if m.LastPull != 0 {
+		n += 1 + sovLstore(uint64(m.LastPull))
 	}
 	return n
 }
@@ -1099,6 +1384,251 @@ func (m *HeadBookRecord_HeadEntry) Unmarshal(dAtA []byte) error {
 				b := dAtA[iNdEx]
 				iNdEx++
 				m.Counter |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipLstore(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthLstore
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *SyncBookRecord) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowLstore
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: SyncBookRecord: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: SyncBookRecord: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field PeerID", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowLstore
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthLstore
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex < 0 {
+				return ErrInvalidLengthLstore
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			var v ProtoPeerID
+			m.PeerID = &v
+			if err := m.PeerID.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Entries", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowLstore
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthLstore
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthLstore
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Entries = append(m.Entries, &SyncBookRecord_SyncEntry{})
+			if err := m.Entries[len(m.Entries)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipLstore(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthLstore
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *SyncBookRecord_SyncEntry) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowLstore
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: SyncEntry: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: SyncEntry: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field THash", wireType)
+			}
+			m.THash = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowLstore
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.THash |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field UpStatus", wireType)
+			}
+			m.UpStatus = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowLstore
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.UpStatus |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 3:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DownStatus", wireType)
+			}
+			m.DownStatus = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowLstore
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.DownStatus |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 4:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field LastPull", wireType)
+			}
+			m.LastPull = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowLstore
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.LastPull |= int64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
