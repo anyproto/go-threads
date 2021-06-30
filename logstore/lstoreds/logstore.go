@@ -61,7 +61,9 @@ func NewLogstore(ctx context.Context, store ds.Batching, opts Options) (core.Log
 
 	headBook := NewHeadBook(store.(ds.TxnDatastore))
 
-	ps := lstore.NewLogstore(keyBook, addrBook, headBook, threadMetadata)
+	syncBook := NewSyncBook(store.(ds.TxnDatastore))
+
+	ps := lstore.NewLogstore(keyBook, addrBook, headBook, threadMetadata, syncBook)
 	return ps, nil
 }
 
@@ -144,6 +146,10 @@ func dsLogKey(t thread.ID, p peer.ID, baseKey ds.Key) ds.Key {
 	key := baseKey.ChildString(base32.RawStdEncoding.EncodeToString(t.Bytes()))
 	key = key.ChildString(base32.RawStdEncoding.EncodeToString([]byte(p)))
 	return key
+}
+
+func dsPeerKey(p peer.ID, baseKey ds.Key) ds.Key {
+	return baseKey.ChildString(base32.RawStdEncoding.EncodeToString([]byte(p)))
 }
 
 func parseThreadID(id string) (thread.ID, error) {

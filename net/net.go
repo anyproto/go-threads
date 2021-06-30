@@ -1609,3 +1609,38 @@ func (n *net) threadOffsets(tid thread.ID) (map[peer.ID]thread.Head, []peer.ID, 
 	}
 	return offsets, peers, nil
 }
+
+func (n *net) Connectivity() (<-chan core.ConnectionStatus, error) {
+	if n.connTrack == nil {
+		return nil, ErrSyncTrackingDisabled
+	}
+	return n.connTrack.Notify(), nil
+}
+
+func (n *net) Status(tid thread.ID, pid peer.ID) (core.SyncStatus, error) {
+	if n.tStat == nil {
+		return core.SyncStatus{}, ErrSyncTrackingDisabled
+	}
+	return n.tStat.Status(tid, pid), nil
+}
+
+func (n *net) View(tid thread.ID) (map[peer.ID]core.SyncStatus, error) {
+	if n.tStat == nil {
+		return nil, ErrSyncTrackingDisabled
+	}
+	return n.tStat.View(tid), nil
+}
+
+func (n *net) PeerSummary(pid peer.ID) (core.SyncSummary, error) {
+	if n.tStat == nil {
+		return core.SyncSummary{}, ErrSyncTrackingDisabled
+	}
+	return n.tStat.PeerSummary(pid), nil
+}
+
+func (n *net) ThreadSummary(tid thread.ID) (core.SyncSummary, error) {
+	if n.tStat == nil {
+		return core.SyncSummary{}, ErrSyncTrackingDisabled
+	}
+	return n.tStat.ThreadSummary(tid), nil
+}
