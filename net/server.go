@@ -189,6 +189,7 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 
 	var (
 		logRecordLimit = int(s.net.conf.NetPullingLimit) / len(info.Logs)
+		totalRecords   int
 		failures       int32
 		mx             sync.Mutex
 		wg             sync.WaitGroup
@@ -247,6 +248,8 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 				Records: prs,
 				Log:     pblg,
 			})
+			s.net.metrics.NumberOfRecordsSentForLog(len(prs))
+			totalRecords += len(prs)
 			mx.Unlock()
 
 			log.With("thread", tid.String()).With("peer", pid.String()).With("offset", off.String()).With("head", head).Debugf("sending %d records in log to remote peer", len(recs))
@@ -255,6 +258,7 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 
 	wg.Wait()
 
+	s.net.metrics.NumberOfRecordsSentTotal(totalRecords)
 	if registry := s.net.tStat; registry != nil && failures == 0 {
 		// if requester was able to receive our latest records its
 		// equivalent to successful push in the reverse direction

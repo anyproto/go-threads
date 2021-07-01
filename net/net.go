@@ -30,6 +30,8 @@ import (
 	lstore "github.com/textileio/go-threads/core/logstore"
 	core "github.com/textileio/go-threads/core/net"
 	"github.com/textileio/go-threads/core/thread"
+	sym "github.com/textileio/go-threads/crypto/symmetric"
+	"github.com/textileio/go-threads/metrics"
 	pb "github.com/textileio/go-threads/net/pb"
 	"github.com/textileio/go-threads/net/queue"
 	"github.com/textileio/go-threads/net/util"
@@ -141,6 +143,8 @@ type net struct {
 	server *server
 	bus    *broadcast.Broadcaster
 
+	metrics metrics.Metrics
+
 	connectors map[thread.ID]*app.Connector
 	connLock   sync.RWMutex
 
@@ -249,8 +253,18 @@ func NewNetwork(
 		}
 	}()
 
+	n.setMetrics(ctx)
 	go n.startPulling()
 	return n, nil
+}
+
+func (n *net) setMetrics(ctx context.Context) {
+	m, ok := ctx.Value(metrics.ContextKey{}).(metrics.Metrics)
+	if !ok {
+		n.metrics = &metrics.NoOpMetrics{}
+		return
+	}
+	n.metrics = m
 }
 
 func (n *net) countRecords(ctx context.Context, tid thread.ID, rid cid.Cid) (int64, error) {
