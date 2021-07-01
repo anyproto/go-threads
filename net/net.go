@@ -16,7 +16,9 @@ import (
 	format "github.com/ipfs/go-ipld-format"
 	logging "github.com/ipfs/go-log"
 	"github.com/libp2p/go-libp2p-core/crypto"
+	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/host"
+	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
 	pstore "github.com/libp2p/go-libp2p-core/peerstore"
 	gostream "github.com/libp2p/go-libp2p-gostream"
@@ -28,6 +30,7 @@ import (
 	core "github.com/textileio/go-threads/core/net"
 	"github.com/textileio/go-threads/core/thread"
 	sym "github.com/textileio/go-threads/crypto/symmetric"
+	"github.com/textileio/go-threads/metrics"
 	pb "github.com/textileio/go-threads/net/pb"
 	"github.com/textileio/go-threads/net/queue"
 	"github.com/textileio/go-threads/net/util"
@@ -86,6 +89,8 @@ var (
 // semaphore protecting thread info updates
 type semaThreadUpdate thread.ID
 
+type recordPutOriginKey struct{}
+
 func (t semaThreadUpdate) Key() string {
 	return "tu:" + string(t)
 }
@@ -103,6 +108,9 @@ type net struct {
 	rpc    *grpc.Server
 	server *server
 	bus    *broadcast.Broadcaster
+
+	metrics               metrics.Metrics
+	isPrivateReachability bool
 
 	connectors map[thread.ID]*app.Connector
 	connLock   sync.RWMutex
@@ -188,8 +196,45 @@ func NewNetwork(
 		}
 	}()
 
+	t.setMetrics(ctx)
+	go t.monitorReachability(ctx)
 	go t.startPulling()
 	return t, nil
+}
+
+func (n *net) setMetrics(ctx context.Context) {
+	m, ok := ctx.Value(metrics.ContextKey{}).(metrics.Metrics)
+	if !ok {
+		n.metrics = &metrics.NoOpMetrics{}
+		return
+	}
+	n.metrics = m
+}
+
+func (n *net) monitorReachability(ctx context.Context) {
+	subReachability, _ := n.host.EventBus().Subscribe(new(event.EvtLocalReachabilityChanged))
+	defer subReachability.Close()
+	for {
+		select {
+		case ev, ok := <-subReachability.Out():
+			if !ok {
+				return
+			}
+			evt, ok := ev.(event.EvtLocalReachabilityChanged)
+			if !ok {
+				return
+			}
+			isPrivate := false
+			if evt.Reachability == network.ReachabilityPrivate {
+				isPrivate = true
+			}
+			n.connLock.Lock()
+			n.isPrivateReachability = isPrivate
+			n.connLock.Unlock()
+		case <-ctx.Done():
+			return
+		}
+	}
 }
 
 func (n *net) countRecords(ctx context.Context, tid thread.ID, rid cid.Cid) (int64, error) {
@@ -1099,6 +1144,13 @@ func (n *net) loadRecords(
 	)
 
 	for i := len(recs) - 1; i >= 0; i-- {
+		// adding metrics here because this is the only loop when we go through all the records
+		// excluding the ones we get from bitswap
+		recordType, ok := ctx.Value(recordPutOriginKey{}).(metrics.RecordType)
+		if ok {
+			n.metrics.AcceptRecord(recordType, n.isPrivateReachability)
+		}
+
 		var next = recs[i]
 		if c := next.Cid(); !c.Defined() || c.Equals(head.ID) {
 			complete = true
@@ -1585,6 +1637,7 @@ func (n *net) updateRecordsFromPeer(ctx context.Context, pid peer.ID, tid thread
 	if err != nil {
 		return fmt.Errorf("getting records for thread %s from %s failed: %w", tid, pid, err)
 	}
+	ctx = context.WithValue(ctx, recordPutOriginKey{}, metrics.RecordTypeGet)
 	for lid, rs := range recs {
 		if err = n.putRecords(ctx, tid, lid, rs.records, rs.counter); err != nil {
 			return fmt.Errorf("putting records from log %s (thread %s) failed: %w", lid, tid, err)
