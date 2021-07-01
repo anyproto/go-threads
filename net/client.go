@@ -49,7 +49,7 @@ func (s *server) getLogs(ctx context.Context, id thread.ID, pid peer.ID) ([]thre
 		Body: body,
 	}
 
-	log.Debugf("getting %s logs from %s...", id, pid)
+	log.With("thread", id.String()).With("peer", pid.String()).Debugf("getting %s logs from %s...", id, pid)
 
 	client, err := s.dial(pid)
 	if err != nil {
@@ -63,7 +63,7 @@ func (s *server) getLogs(ctx context.Context, id thread.ID, pid peer.ID) ([]thre
 		return nil, err
 	}
 
-	log.Debugf("received %d logs from %s", len(reply.Logs), pid)
+	log.With("thread", id.String()).With("peer", pid.String()).Debugf("received %d logs", len(reply.Logs))
 
 	lgs := make([]thread.LogInfo, len(reply.Logs))
 	for i, l := range reply.Logs {
@@ -89,7 +89,7 @@ func (s *server) pushLog(ctx context.Context, id thread.ID, lg thread.LogInfo, p
 		Body: body,
 	}
 
-	log.Debugf("pushing log %s to %s...", lg.ID, pid)
+	log.With("thread", id.String()).With("peer", pid.String()).Debugf("pushing log to peer...")
 
 	client, err := s.dial(pid)
 	if err != nil {
@@ -197,7 +197,7 @@ func (s *server) getRecordsFromPeer(
 	req *pb.GetRecordsRequest,
 	serviceKey *sym.Key,
 ) (map[peer.ID]peerRecords, error) {
-	log.Debugf("getting records from %s...", pid)
+	log.With("thread", tid.String()).With("peer", pid.String()).Debugf("getting records from peer...")
 
 	var final = threadStatusDownloadFailed
 	if registry := s.net.tStat; registry != nil {
@@ -221,7 +221,7 @@ func (s *server) getRecordsFromPeer(
 
 	for _, l := range reply.Logs {
 		var logID = l.LogID.ID
-		log.Debugf("received %d records in log %s from %s", len(l.Records), logID, pid)
+		log.With("thread", tid.String()).With("peer", pid.String()).With("log", logID.String()).Debugf("received %d records in log from peer", len(l.Records))
 
 		if l.Log != nil && len(l.Log.Addrs) > 0 {
 			if err = s.net.store.AddAddrs(tid, logID, addrsFromProto(l.Log.Addrs), pstore.PermanentAddrTTL); err != nil {
@@ -306,14 +306,14 @@ func (s *server) pushRecord(ctx context.Context, tid thread.ID, lid peer.ID, rec
 	for _, p := range peers {
 		go func(pid peer.ID) {
 			if err := s.pushRecordToPeer(req, pid, tid, lid); err != nil {
-				log.Errorf("pushing record to %s (thread: %s, log: %s) failed: %v", pid, tid, lid, err)
+				log.With("thread", tid.String()).With("peer", pid.String()).With("log", lid.String()).Errorf("pushing record failed: %v", err)
 			}
 		}(p)
 	}
 
 	// Finally, publish to the thread's topic
 	if err = s.publishRecord(ctx, tid, req); err != nil {
-		log.Errorf("error publishing record: %s", err)
+		log.With("thread", tid.String()).Errorf("error publishing record: %s", err)
 	}
 
 	return nil
@@ -345,11 +345,12 @@ func (s *server) pushRecordToPeer(
 
 	switch status.Convert(err).Code() {
 	case codes.Unavailable:
-		log.Debugf("%s unavailable, skip pushing the record", pid)
+		log.With("peer", pid.String()).With("thread", tid.String()).Debugf("peer unavailable, skip pushing the record")
 		return nil
 
 	case codes.NotFound:
 		// send the missing log
+		log.With("peer", pid.String()).With("thread", tid.String()).Warnf("push record to remote peer failed, not found. Resend the log and try again...")
 		lctx, cancel := context.WithTimeout(s.net.ctx, PushTimeout)
 		defer cancel()
 		lg, err := s.net.store.GetLog(tid, lid)
@@ -379,7 +380,11 @@ func (s *server) pushRecordToPeer(
 
 // exchangeEdges of specified threads with a peer.
 func (s *server) exchangeEdges(ctx context.Context, pid peer.ID, tids []thread.ID) error {
-	log.Debugf("exchanging edges of %d threads with %s...", len(tids), pid)
+	var tidsStr []string
+	for _, tid := range tids {
+		tidsStr = append(tidsStr, tid.String())
+	}
+	log.With("peer", pid.String()).Debugf("exchanging edges of %d threads: %v", len(tids), tidsStr)
 	var body = &pb.ExchangeEdgesRequest_Body{}
 
 	// fill local edges
@@ -393,7 +398,7 @@ func (s *server) exchangeEdges(ctx context.Context, pid peer.ID, tids []thread.I
 				AddressEdge: addrsEdge,
 			})
 		default:
-			log.Errorf("getting local edges for %s failed: %v", tid, err)
+			log.With("thread", tid.String()).Errorf("getting local edges failed: %v", err)
 		}
 	}
 	if len(body.Threads) == 0 {
@@ -416,15 +421,15 @@ func (s *server) exchangeEdges(ctx context.Context, pid peer.ID, tids []thread.I
 		if st, ok := status.FromError(err); ok {
 			switch st.Code() {
 			case codes.Unimplemented:
-				log.Debugf("%s doesn't support edge exchange, falling back to direct record pulling", pid)
+				log.With("peer", pid.String()).Debugf("peer doesn't support edge exchange, falling back to direct record pulling")
 				for _, tid := range tids {
 					if s.net.queueGetRecords.Schedule(pid, tid, callPriorityLow, s.net.updateRecordsFromPeer) {
-						log.Debugf("record update for thread %s from %s scheduled", tid, pid)
+						log.With("thread", tid.String()).With("peer", pid.String()).Debugf("record update scheduled")
 					}
 				}
 				return nil
 			case codes.Unavailable:
-				log.Debugf("%s unavailable, skip edge exchange", pid)
+				log.With("peer", pid.String()).Debugf("peer unavailable, skip edge exchange: %s", err.Error())
 				return nil
 			}
 		}
@@ -438,7 +443,7 @@ func (s *server) exchangeEdges(ctx context.Context, pid peer.ID, tids []thread.I
 		addrsEdgeLocal, headsEdgeLocal, err := s.localEdges(tid)
 		// we allow local edges to be empty, because the other peer can still have more information
 		if err != nil && err != errNoHeadsEdge && err != errNoAddrsEdge {
-			log.Errorf("second retrieval of local edges for %s failed: %v", tid, err)
+			log.With("thread", tid.String()).With("peer", pid.String()).Errorf("second retrieval of local edges failed: %v", err)
 			continue
 		}
 
@@ -448,7 +453,7 @@ func (s *server) exchangeEdges(ctx context.Context, pid peer.ID, tids []thread.I
 		// were non-existent, so it shouldn't break backwards compatibility
 		if responseEdge != lstoreds.EmptyEdgeValue && responseEdge != addrsEdgeLocal {
 			if s.net.queueGetLogs.Schedule(pid, tid, callPriorityLow, s.net.updateLogsFromPeer) {
-				log.Debugf("log information update for thread %s from %s scheduled", tid, pid)
+				log.With("thread", tid.String()).With("peer", pid.String()).Debugf("log information update for thread scheduled")
 			}
 		}
 
@@ -457,7 +462,7 @@ func (s *server) exchangeEdges(ctx context.Context, pid peer.ID, tids []thread.I
 		if responseEdge != lstoreds.EmptyEdgeValue {
 			if responseEdge != headsEdgeLocal {
 				if s.net.queueGetRecords.Schedule(pid, tid, callPriorityLow, s.net.updateRecordsFromPeer) {
-					log.With("thread", tid.String()).With("pid", pid.String()).Debugf("record update for thread scheduled")
+					log.Debugf("record update for thread %s from %s scheduled", tid, pid)
 				}
 			} else if registry := s.net.tStat; registry != nil {
 				// equal heads could be interpreted as successful upload/download
@@ -478,7 +483,7 @@ func (s *server) dial(peerID peer.ID) (pb.ServiceClient, error) {
 	if ok {
 		if conn.GetState() == connectivity.Shutdown {
 			if err := conn.Close(); err != nil && status.Code(err) != codes.Canceled {
-				log.Errorf("error closing connection: %v", err)
+				log.With("peer", peerID.String()).Errorf("error closing connection: %v", err)
 			}
 		} else {
 			return pb.NewServiceClient(conn), nil
@@ -513,6 +518,6 @@ func (s *server) getLibp2pDialer() grpc.DialOption {
 
 func withErrLog(pid peer.ID, f func(pid peer.ID) error) {
 	if err := f(pid); err != nil {
-		log.Error(err.Error())
+		log.With("peer", pid.String()).Error(err.Error())
 	}
 }

@@ -93,7 +93,7 @@ func (s *server) GetLogs(ctx context.Context, req *pb.GetLogsRequest) (*pb.GetLo
 	if err != nil {
 		return nil, err
 	}
-	log.Debugf("received get logs request from %s", pid)
+	log.With("thread", req.Body.ThreadID.ID.String()).With("peer", pid.String()).Debugf("received get logs request from peer")
 
 	pblgs := &pb.GetLogsReply{}
 	if err := s.checkServiceKey(req.Body.ThreadID.ID, req.Body.ServiceKey); err != nil {
@@ -110,7 +110,7 @@ func (s *server) GetLogs(ctx context.Context, req *pb.GetLogsRequest) (*pb.GetLo
 		pblgs.Logs[i] = logToProto(l)
 	}
 
-	log.Debugf("sending %d logs to %s", len(info.Logs), pid)
+	log.With("thread", req.Body.ThreadID.ID.String()).With("peer", pid.String()).Debugf("sending %d logs to peer", len(info.Logs))
 
 	return pblgs, nil
 }
@@ -121,7 +121,7 @@ func (s *server) PushLog(ctx context.Context, req *pb.PushLogRequest) (*pb.PushL
 	if err != nil {
 		return nil, err
 	}
-	log.Debugf("received push log request from %s", pid)
+	log.With("thread", req.Body.ThreadID.ID.String()).With("peer", pid.String()).Debugf("received push log request from peer")
 
 	// Pick up missing keys
 	info, err := s.net.store.GetThread(req.Body.ThreadID.ID)
@@ -150,7 +150,7 @@ func (s *server) PushLog(ctx context.Context, req *pb.PushLogRequest) (*pb.PushL
 	}
 
 	if s.net.queueGetRecords.Schedule(pid, req.Body.ThreadID.ID, callPriorityLow, s.net.updateRecordsFromPeer) {
-		log.Debugf("record update for thread %s from %s scheduled", req.Body.ThreadID.ID, pid)
+		log.With("thread", req.Body.ThreadID.ID.String()).With("peer", pid.String()).Debugf("record update for thread from peer scheduled")
 	}
 	return &pb.PushLogReply{}, nil
 }
@@ -161,7 +161,7 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 	if err != nil {
 		return nil, err
 	}
-	log.Debugf("received get records request from %s", pid)
+	log.With("thread", req.Body.ThreadID.ID.String()).With("peer", pid.String()).Debugf("received get records request from peer")
 
 	var pbrecs = &pb.GetRecordsReply{}
 	if err := s.checkServiceKey(req.Body.ThreadID.ID, req.Body.ServiceKey); err != nil {
@@ -222,7 +222,7 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 			recs, err := s.net.getLocalRecords(ctx, tid, lid, off, lim, counter)
 			if err != nil {
 				atomic.AddInt32(&failures, 1)
-				log.Errorf("getting local records (thread %s, log %s): %v", tid, lid, err)
+				log.With("thread", tid.String()).With("log", lid.String()).Errorf("getting local records failed: %v", err)
 			}
 
 			var prs = make([]*pb.Log_Record, 0, len(recs))
@@ -249,7 +249,7 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 			})
 			mx.Unlock()
 
-			log.Debugf("sending %d records in log %s to %s", len(recs), lid, pid)
+			log.With("thread", tid.String()).With("peer", pid.String()).With("offset", off.String()).With("head", lg.Head.ID.String()).Debugf("sending %d records in log to remote peer", len(recs))
 		}(req.Body.ThreadID.ID, lg.ID, offset, limit)
 	}
 
@@ -269,7 +269,10 @@ func (s *server) PushRecord(ctx context.Context, req *pb.PushRecordRequest) (*pb
 	if err != nil {
 		return nil, err
 	}
-	log.Debugf("received push record request from %s", pid)
+	log.With("peer", pid.String()).
+		With("log", req.Body.LogID.String()).
+		With("thread", req.Body.ThreadID.String()).
+		Debugf("received push record request from peer")
 
 	// A log is required to accept new records
 	logpk, err := s.net.store.PubKey(req.Body.ThreadID.ID, req.Body.LogID.ID)
@@ -315,7 +318,7 @@ func (s *server) ExchangeEdges(ctx context.Context, req *pb.ExchangeEdgesRequest
 	if err != nil {
 		return nil, err
 	}
-	log.Debugf("received exchange edges request from %s", pid)
+	log.With("peer", pid.String()).Debugf("received exchange edges request from peer")
 
 	var reply pb.ExchangeEdgesReply
 	for _, entry := range req.Body.Threads {
@@ -342,7 +345,7 @@ func (s *server) ExchangeEdges(ctx context.Context, req *pb.ExchangeEdgesRequest
 					}
 				}
 				if s.net.queueGetLogs.Schedule(pid, tid, prt, updateLogs) {
-					log.Debugf("log information update for thread %s from %s scheduled", tid, pid)
+					log.With("peer", pid.String()).With("thread", tid.String()).Debugf("log information update for thread %s from %s scheduled", tid, pid)
 				}
 			}
 
