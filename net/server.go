@@ -20,6 +20,7 @@ import (
 	lstore "github.com/textileio/go-threads/core/logstore"
 	"github.com/textileio/go-threads/core/thread"
 	"github.com/textileio/go-threads/logstore/lstoreds"
+	"github.com/textileio/go-threads/metrics"
 	pb "github.com/textileio/go-threads/net/pb"
 	"github.com/textileio/go-threads/util"
 	"google.golang.org/grpc"
@@ -301,6 +302,11 @@ func (s *server) PushRecord(ctx context.Context, req *pb.PushRecordRequest) (*pb
 		// receiving and successful processing records is equivalent to pulling from the peer
 		registry.Apply(pid, req.Body.ThreadID.ID, threadStatusDownloadStarted)
 		defer func() { registry.Apply(pid, req.Body.ThreadID.ID, final) }()
+	}
+
+	// if it is not a pubsub then it is a push
+	if ctx.Value(recordPutOriginKey{}) == nil {
+		ctx = context.WithValue(ctx, recordPutOriginKey{}, metrics.RecordTypePush)
 	}
 
 	if err = s.net.PutRecord(ctx, req.Body.ThreadID.ID, req.Body.LogID.ID, rec, req.Counter); err != nil {
