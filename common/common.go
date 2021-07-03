@@ -31,6 +31,12 @@ import (
 	"google.golang.org/grpc"
 )
 
+const (
+	defaultIpfsLitePath = "ipfslite"
+	defaultLogstorePath = "logstore"
+)
+
+// DefaultNetwork is a boostrapable default Net with sane defaults.
 type NetBoostrapper interface {
 	app.Net
 	GetIpfsLite() *ipfslite.Peer
@@ -101,9 +107,24 @@ func DefaultNetwork(opts ...NetOption) (NetBoostrapper, error) {
 		return nil, fin.Cleanup(err)
 	}
 
+	var (
+		syncBook     core.SyncBook
+		syncTracking bool
+	)
+
 	tstore, err := buildLogstore(ctx, config, fin)
 	if err != nil {
 		return nil, fin.Cleanup(err)
+	}
+
+	switch config.SyncTracking {
+	case SyncTrackingDisabled:
+		syncBook = nil
+	case SyncTrackingSession:
+		syncTracking = true
+	case SyncTrackingPersistent:
+		syncBook = tstore
+		syncTracking = true
 	}
 
 	// Build a network
@@ -116,6 +137,8 @@ func DefaultNetwork(opts ...NetOption) (NetBoostrapper, error) {
 		NoExchangeEdgesMigration:  config.NoExchangeEdgesMigration,
 		PubSub:                    config.PubSub,
 		Debug:                     config.Debug,
+		SyncTracking: 			   syncTracking,
+		SyncBook:                  syncBook,
 	}, config.GRPCServerOptions, config.GRPCDialOptions)
 	if err != nil {
 		return nil, fin.Cleanup(err)
@@ -288,6 +311,14 @@ const (
 	LogstoreHybrid     LogstoreType = "hybrid"
 )
 
+type SyncTracking uint8
+
+const (
+	SyncTrackingDisabled SyncTracking = iota
+	SyncTrackingSession
+	SyncTrackingPersistent
+)
+
 type NetConfig struct {
 	NetPullingLimit           uint
 	NetPullingStartAfter      time.Duration
@@ -305,6 +336,7 @@ type NetConfig struct {
 	ConnManager               cconnmgr.ConnManager
 	GRPCServerOptions         []grpc.ServerOption
 	GRPCDialOptions           []grpc.DialOption
+	SyncTracking      		  SyncTracking
 	Debug                     bool
 }
 
@@ -330,6 +362,17 @@ func WithNoNetPulling(disable bool) NetOption {
 func WithNoExchangeEdgesMigration(disable bool) NetOption {
 	return func(c *NetConfig) error {
 		c.NoExchangeEdgesMigration = disable
+		return nil
+	}
+}
+
+func WithNetSyncTracking(persistent bool) NetOption {
+	return func(c *NetConfig) error {
+		if persistent {
+			c.SyncTracking = SyncTrackingPersistent
+		} else {
+			c.SyncTracking = SyncTrackingSession
+		}
 		return nil
 	}
 }
