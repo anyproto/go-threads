@@ -19,6 +19,7 @@ import (
 	sym "github.com/textileio/go-threads/crypto/symmetric"
 	"github.com/textileio/go-threads/logstore/lstoreds"
 	pb "github.com/textileio/go-threads/net/pb"
+	"github.com/textileio/go-threads/net/util"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
@@ -198,6 +199,10 @@ func (s *server) getRecordsFromPeer(
 	serviceKey *sym.Key,
 ) (map[peer.ID]peerRecords, error) {
 	log.With("thread", tid.String()).With("peer", pid.String()).Debugf("getting records from peer...")
+
+	started := time.Now()
+	pullThreadCounter.Inc()
+	defer util.MetricObserveSeconds(pullThreadDuration, started)
 
 	var final = threadStatusDownloadFailed
 	if registry := s.net.tStat; registry != nil {

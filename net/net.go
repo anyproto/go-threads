@@ -21,6 +21,7 @@ import (
 	pstore "github.com/libp2p/go-libp2p-core/peerstore"
 	gostream "github.com/libp2p/go-libp2p-gostream"
 	ma "github.com/multiformats/go-multiaddr"
+	prom "github.com/prometheus/client_golang/prometheus"
 	"github.com/textileio/go-threads/broadcast"
 	"github.com/textileio/go-threads/cbor"
 	"github.com/textileio/go-threads/core/app"
@@ -78,6 +79,51 @@ const (
 	callPriorityLow  = 1
 	callPriorityHigh = 3
 )
+
+var (
+	servedThreads = prom.NewGauge(prom.GaugeOpts{
+		Namespace: "threads",
+		Subsystem: "net",
+		Name:      "threads_total",
+		Help:      "Number of served threads",
+	})
+
+	pullThreadCounter = prom.NewCounter(prom.CounterOpts{
+		Namespace: "threads",
+		Subsystem: "net",
+		Name:      "pull_thread_total",
+		Help:      "Number of pull thread attempts",
+	})
+
+	pullThreadDuration = prom.NewHistogram(prom.HistogramOpts{
+		Namespace: "threads",
+		Subsystem: "net",
+		Name:      "pull_thread_duration_seconds",
+		Help:      "Pulling process duration",
+		Buckets: util.MetricTimeBuckets([]time.Duration{
+			256 * time.Millisecond,
+			512 * time.Millisecond,
+			1024 * time.Millisecond,
+			2 * time.Second,
+			4 * time.Second,
+			8 * time.Second,
+			16 * time.Second,
+			30 * time.Second,
+			45 * time.Second,
+			60 * time.Second,
+			90 * time.Second,
+			120 * time.Second,
+			180 * time.Second,
+			240 * time.Second,
+		}),
+	})
+)
+
+func init() {
+	prom.MustRegister(servedThreads)
+	prom.MustRegister(pullThreadCounter)
+	prom.MustRegister(pullThreadDuration)
+}
 
 var (
 	_ util.SemaphoreKey = (*semaThreadUpdate)(nil)
