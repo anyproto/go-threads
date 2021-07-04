@@ -283,9 +283,13 @@ func (s *server) getRecordsFromPeer(
 			}
 			records = append(records, rec)
 		}
+		counter := thread.CounterUndef
+		if l.Log != nil {
+			counter = l.Log.Counter
+		}
 		recs[logID] = peerRecords{
 			records: records,
-			counter: l.Log.Counter,
+			counter: counter,
 		}
 	}
 
