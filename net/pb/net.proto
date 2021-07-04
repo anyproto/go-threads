@@ -6,6 +6,14 @@ import "github.com/gogo/protobuf/gogoproto/gogo.proto";
 option (gogoproto.benchgen_all) = true;
 option (gogoproto.populate_all) = true;
 
+// Header holds a key and signature for a request.
+message Header {
+    // pubKey is the author's public key.
+    bytes pubKey = 1 [(gogoproto.customtype) = "ProtoPubKey"];
+    // signature is the message signature.
+    bytes signature = 2;
+}
+
 // Log represents a thread log.
 message Log {
     // ID of the log.
@@ -34,8 +42,8 @@ message Log {
 
 // GetLogsRequest is used to request thread logs.
 message GetLogsRequest {
-    // this was the message header.
-    reserved 1;
+    // TODO: remove after everyone updates to new version
+    Header header = 1;
     // body is the message body.
     Body body = 2;
 
@@ -55,8 +63,8 @@ message GetLogsReply {
 
 // PushLogRequest is used to push a thread log to a peer.
 message PushLogRequest {
-    // this was the message header.
-    reserved 1;
+    // TODO: remove after everyone updates to new version
+    Header header = 1;
     // body is the message body.
     Body body = 2;
 
@@ -77,8 +85,8 @@ message PushLogReply {}
 
 // GetRecordsRequest is used to request records from a log address.
 message GetRecordsRequest {
-    // this was the message header.
-    reserved 1;
+    // TODO: remove after everyone updates to new version
+    Header header = 1;
     // body is the message body.
     Body body = 2;
 
@@ -122,8 +130,8 @@ message GetRecordsReply {
 
 // PushRecordRequest is used to push a log record to a peer.
 message PushRecordRequest {
-    // this was the message header.
-    reserved 1;
+    // TODO: remove after everyone updates to new version
+    Header header = 1;
     // body is the message body.
     Body body = 2;
     // position of the record
@@ -144,8 +152,8 @@ message PushRecordReply {}
 
 // ExchangeEdgesRequest is used to exchange address/heads edges with a peer.
 message ExchangeEdgesRequest {
-    // this was the message header.
-    reserved 1;
+    // TODO: remove after everyone updates to new version
+    Header header = 1;
     // body is the message body.
     Body body = 2;
 
