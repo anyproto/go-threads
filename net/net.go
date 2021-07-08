@@ -249,8 +249,11 @@ func (n *net) countRecords(ctx context.Context, tid thread.ID, rid cid.Cid) (int
 	}
 
 	for cursor.Defined() {
+		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		r, err := cbor.GetRecord(ctx, n, cursor, sk)
+		cancel()
 		if err != nil {
+			log.Errorf("can't find record %s in thread %s", cursor.String(), tid.String())
 			return 0, err
 		}
 		cursor = r.PrevID()
@@ -265,31 +268,35 @@ func (n *net) migrateHeadsIfNeeded(ctx context.Context, ls lstore.Logstore) (err
 		return err
 	}
 
-	log.Info("Checking for heads migration")
+	log.Info("checking for heads migration")
 	isMigrationNeeded := false
 
+	logsWithProblems := 0
 	for _, tid := range threadIds {
 		tInfo, err := ls.GetThread(tid)
 		if err != nil {
 			return err
 		}
-
+	logLoop:
 		for _, l := range tInfo.Logs {
 			heads, err := ls.Heads(tid, l.ID)
 			if err != nil {
 				return err
 			}
 			hslice := make([]thread.Head, 0)
+
 			for _, h := range heads {
 				// In this case we didn't migrate the thread
 				if h.Counter == thread.CounterUndef && h.ID != cid.Undef {
 					if !isMigrationNeeded {
-						log.Info("Starting migrating heads")
+						log.Info("starting migrating heads")
 						isMigrationNeeded = true
 					}
 					counter, err := n.countRecords(ctx, tid, h.ID)
 					if err != nil {
-						return err
+						log.Errorf("counting ended with error %s for thread %s, log %s, head %s only %d records were counted", err.Error(), tid, l.ID, h.ID, counter)
+						logsWithProblems++
+						continue logLoop
 					}
 					log.Debugf("counter for thread %s, log %s, head %s is %d", tid, l.ID, h.ID, counter)
 
@@ -306,7 +313,13 @@ func (n *net) migrateHeadsIfNeeded(ctx context.Context, ls lstore.Logstore) (err
 	}
 
 	if isMigrationNeeded {
-		log.Info("Finished migrating heads")
+		if logsWithProblems == 0 {
+			log.Info("finished migrating heads")
+		} else {
+			errString := fmt.Sprintf("finished migrating heads, %d logs have problems", logsWithProblems)
+			log.Errorf(errString)
+			return fmt.Errorf(errString)
+		}
 	}
 
 	return nil
