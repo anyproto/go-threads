@@ -269,7 +269,7 @@ func (n *net) countRecords(ctx context.Context, tid thread.ID, rid cid.Cid) (int
 		cancel()
 		if err != nil {
 			log.Errorf("can't find record %s in thread %s", cursor.String(), tid.String())
-			return 0, err
+			return counter, err
 		}
 		cursor = r.PrevID()
 		counter += 1
