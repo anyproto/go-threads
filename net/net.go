@@ -319,7 +319,9 @@ func (n *net) migrateHeadsIfNeeded(ctx context.Context, ls lstore.Logstore) (err
 					hslice = append(hslice, h)
 				}
 			}
-			migrationData.Data[l.ID.String()] = HeadData{Head: hslice[0].ID.String(), Counter: hslice[0].Counter}
+			if len(hslice) > 0 {
+				migrationData.Data[l.ID.String()] = HeadData{Head: hslice[0].ID.String(), Counter: hslice[0].Counter}
+			}
 			err = ls.SetHeads(tid, l.ID, hslice)
 			if err != nil {
 				continue
