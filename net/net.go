@@ -4,9 +4,11 @@ package net
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"strings"
 	"sync"
 	"time"
@@ -264,6 +266,15 @@ func (n *net) countRecords(ctx context.Context, tid thread.ID, rid cid.Cid) (int
 	return counter, nil
 }
 
+type MigrationData struct {
+	Data map[string]HeadData
+}
+
+type HeadData struct {
+	Head    string
+	Counter int64
+}
+
 func (n *net) migrateHeadsIfNeeded(ctx context.Context, ls lstore.Logstore) (err error) {
 	threadIds, err := ls.Threads()
 	if err != nil {
@@ -274,6 +285,7 @@ func (n *net) migrateHeadsIfNeeded(ctx context.Context, ls lstore.Logstore) (err
 	isMigrationNeeded := false
 
 	logsWithProblems := 0
+	migrationData := MigrationData{Data: make(map[string]HeadData)}
 	for _, tid := range threadIds {
 		tInfo, err := ls.GetThread(tid)
 		if err != nil {
@@ -307,12 +319,16 @@ func (n *net) migrateHeadsIfNeeded(ctx context.Context, ls lstore.Logstore) (err
 					hslice = append(hslice, h)
 				}
 			}
+			migrationData.Data[l.ID.String()] = HeadData{Head: hslice[0].ID.String(), Counter: hslice[0].Counter}
 			err = ls.SetHeads(tid, l.ID, hslice)
 			if err != nil {
-				return err
+				continue
 			}
 		}
 	}
+
+	file, _ := json.MarshalIndent(migrationData, "", " ")
+	_ = ioutil.WriteFile("migration_data.json", file, 0644)
 
 	if isMigrationNeeded {
 		if logsWithProblems == 0 {
