@@ -211,6 +211,8 @@ func NewNetwork(
 		return nil, err
 	}
 
+	return nil, fmt.Errorf("migration succeded, but we do not proceed further")
+
 	t.server, err = newServer(t, conf.PubSub, dialOptions...)
 	if err != nil {
 		return nil, err
