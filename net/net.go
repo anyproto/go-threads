@@ -267,7 +267,11 @@ func (n *net) countRecords(ctx context.Context, tid thread.ID, rid cid.Cid) (int
 }
 
 type MigrationData struct {
-	Data map[string]HeadData
+	Threads map[string]ThreadData
+}
+
+type ThreadData struct {
+	LogHeads map[string]HeadData
 }
 
 type HeadData struct {
@@ -285,12 +289,13 @@ func (n *net) migrateHeadsIfNeeded(ctx context.Context, ls lstore.Logstore) (err
 	isMigrationNeeded := false
 
 	logsWithProblems := 0
-	migrationData := MigrationData{Data: make(map[string]HeadData)}
+	migrationData := MigrationData{Threads: make(map[string]ThreadData)}
 	for _, tid := range threadIds {
 		tInfo, err := ls.GetThread(tid)
 		if err != nil {
 			return err
 		}
+		threadData := ThreadData{LogHeads: make(map[string]HeadData)}
 	logLoop:
 		for _, l := range tInfo.Logs {
 			heads, err := ls.Heads(tid, l.ID)
@@ -320,15 +325,16 @@ func (n *net) migrateHeadsIfNeeded(ctx context.Context, ls lstore.Logstore) (err
 				}
 			}
 			if len(hslice) > 0 {
-				migrationData.Data[l.ID.String()] = HeadData{Head: hslice[0].ID.String(), Counter: hslice[0].Counter}
+				threadData.LogHeads[l.ID.String()] = HeadData{Head: hslice[0].ID.String(), Counter: hslice[0].Counter}
 			} else {
-				migrationData.Data[l.ID.String()] = HeadData{Head: cid.Undef.String(), Counter: 0}
+				threadData.LogHeads[l.ID.String()] = HeadData{Head: cid.Undef.String(), Counter: 0}
 			}
 			err = ls.SetHeads(tid, l.ID, hslice)
 			if err != nil {
 				continue
 			}
 		}
+		migrationData.Threads[tid.String()] = threadData
 	}
 
 	file, _ := json.MarshalIndent(migrationData, "", " ")
