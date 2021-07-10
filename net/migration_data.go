@@ -18,11 +18,10 @@ type HeadData struct {
 	Counter int64
 }
 
-type MigrationConfigPathKey struct{}
+type MigrationConfigKey struct{}
 
 type MigrationConfig struct {
 	Path          string
-	ShouldMigrate bool
 }
 
 func readMigrationData(path string) (*MigrationData, error) {

@@ -263,12 +263,9 @@ func (n *net) countRecords(ctx context.Context, tid thread.ID, rid cid.Cid) (int
 }
 
 func (n *net) migrateHeadsIfNeeded(ctx context.Context, ls lstore.Logstore) (err error) {
-	config, ok := ctx.Value(MigrationConfigPathKey{}).(MigrationConfig)
+	config, ok := ctx.Value(MigrationConfigKey{}).(MigrationConfig)
 	if !ok {
-		return fmt.Errorf("cannot get migration config, aborting")
-	}
-
-	if !config.ShouldMigrate {
+		log.Info("skipping migration")
 		return nil
 	}
 
