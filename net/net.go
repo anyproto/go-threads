@@ -263,47 +263,65 @@ func (n *net) countRecords(ctx context.Context, tid thread.ID, rid cid.Cid) (int
 }
 
 func (n *net) migrateHeadsIfNeeded(ctx context.Context, ls lstore.Logstore) (err error) {
+	config, ok := ctx.Value(MigrationConfigPathKey{}).(MigrationConfig)
+	if !ok {
+		return fmt.Errorf("cannot get migration config, aborting")
+	}
+
+	if !config.ShouldMigrate {
+		return nil
+	}
+
+	migrationData, err := readMigrationData(config.Path)
+	if err != nil {
+		return err
+	}
+
 	threadIds, err := ls.Threads()
 	if err != nil {
 		return err
 	}
 
-	log.Info("checking for heads migration")
-	isMigrationNeeded := false
+	log.Info("starting heads migration")
 
-	logsWithProblems := 0
 	for _, tid := range threadIds {
 		tInfo, err := ls.GetThread(tid)
 		if err != nil {
 			return err
 		}
-	logLoop:
+		threadMap := ThreadData{LogHeads: make(map[string]HeadData)}
+		if val, ok := migrationData.Threads[tid.String()]; ok {
+			threadMap = val
+		}
+
 		for _, l := range tInfo.Logs {
 			heads, err := ls.Heads(tid, l.ID)
 			if err != nil {
 				return err
 			}
+			var logHead *HeadData
+			if val, ok := threadMap.LogHeads[l.ID.String()]; ok {
+				logHead = &val
+			}
 			hslice := make([]thread.Head, 0)
 
 			for _, h := range heads {
-				// In this case we didn't migrate the thread
-				if h.Counter == thread.CounterUndef && h.ID != cid.Undef {
-					if !isMigrationNeeded {
-						log.Info("starting migrating heads")
-						isMigrationNeeded = true
-					}
-					counter, err := n.countRecords(ctx, tid, h.ID)
-					if err != nil {
-						log.Errorf("counting ended with error %s for thread %s, log %s, head %s only %d records were counted", err.Error(), tid, l.ID, h.ID, counter)
-						logsWithProblems++
-						continue logLoop
-					}
-					log.Debugf("counter for thread %s, log %s, head %s is %d", tid, l.ID, h.ID, counter)
-
-					hslice = append(hslice, thread.Head{ID: h.ID, Counter: counter})
-				} else {
-					hslice = append(hslice, h)
+				// if the thread has exactly same head as was when we did a migration file
+				if logHead != nil && h.ID.String() == logHead.Head {
+					hslice = append(hslice, thread.Head{ID: h.ID, Counter: logHead.Counter})
+					log.Infof("migrated counter for thread %s, log %s, head %s is %d", tid, l.ID, h.ID, logHead.Counter)
+					continue
 				}
+
+				counter, err := n.countRecords(ctx, tid, h.ID)
+				if err != nil {
+					log.Errorf("counting ended with error %s for thread %s, log %s, head %s only %d records were counted, setting nil head to preserve the invariant", err.Error(), tid, l.ID, h.ID, counter)
+					hslice = append(hslice, thread.HeadUndef)
+					continue
+				}
+
+				log.Infof("counted counter for thread %s, log %s, head %s is %d", tid, l.ID, h.ID, counter)
+				hslice = append(hslice, thread.Head{ID: h.ID, Counter: counter})
 			}
 			err = ls.SetHeads(tid, l.ID, hslice)
 			if err != nil {
@@ -312,16 +330,7 @@ func (n *net) migrateHeadsIfNeeded(ctx context.Context, ls lstore.Logstore) (err
 		}
 	}
 
-	if isMigrationNeeded {
-		if logsWithProblems == 0 {
-			log.Info("finished migrating heads")
-		} else {
-			errString := fmt.Sprintf("finished migrating heads, %d logs have problems", logsWithProblems)
-			log.Errorf(errString)
-			return fmt.Errorf(errString)
-		}
-	}
-
+	log.Info("finished migrating heads")
 	return nil
 }
 
