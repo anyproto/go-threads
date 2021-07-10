@@ -282,12 +282,9 @@ func (n *net) migrateHeadsIfNeeded(ctx context.Context, ls lstore.Logstore) (err
 		return nil
 	}
 
-	config, ok := ctx.Value(MigrationConfigPathKey{}).(MigrationConfig)
+	config, ok := ctx.Value(MigrationConfigKey{}).(MigrationConfig)
 	if !ok {
-		return fmt.Errorf("cannot get migration config, aborting")
-	}
-
-	if !config.ShouldMigrate {
+		log.Info("skipping migration")
 		return nil
 	}
 
