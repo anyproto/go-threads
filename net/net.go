@@ -262,6 +262,9 @@ func (n *net) countRecords(ctx context.Context, tid thread.ID, rid cid.Cid) (int
 		}
 		cursor = r.PrevID()
 		counter += 1
+		if counter % 100 == 0 {
+			log.Debugf("counted %d records in thread %s", counter , tid.String())
+		}
 	}
 	return counter, nil
 }
@@ -285,8 +288,7 @@ func (n *net) migrateHeadsIfNeeded(ctx context.Context, ls lstore.Logstore) (err
 		return err
 	}
 
-	log.Info("checking for heads migration")
-	isMigrationNeeded := false
+	log.Info("starting migrating heads")
 
 	logsWithProblems := 0
 	migrationData := MigrationData{Threads: make(map[string]ThreadData)}
@@ -307,10 +309,6 @@ func (n *net) migrateHeadsIfNeeded(ctx context.Context, ls lstore.Logstore) (err
 			for _, h := range heads {
 				// In this case we didn't migrate the thread
 				if h.Counter == thread.CounterUndef && h.ID != cid.Undef {
-					if !isMigrationNeeded {
-						log.Info("starting migrating heads")
-						isMigrationNeeded = true
-					}
 					counter, err := n.countRecords(ctx, tid, h.ID)
 					if err != nil {
 						log.Errorf("counting ended with error %s for thread %s, log %s, head %s only %d records were counted", err.Error(), tid, l.ID, h.ID, counter)
@@ -321,6 +319,7 @@ func (n *net) migrateHeadsIfNeeded(ctx context.Context, ls lstore.Logstore) (err
 
 					hslice = append(hslice, thread.Head{ID: h.ID, Counter: counter})
 				} else {
+					log.Debugf("already counted, counter for thread %s, log %s, head %s is %d", tid, l.ID, h.ID, h.Counter)
 					hslice = append(hslice, h)
 				}
 			}
@@ -331,23 +330,32 @@ func (n *net) migrateHeadsIfNeeded(ctx context.Context, ls lstore.Logstore) (err
 			}
 			err = ls.SetHeads(tid, l.ID, hslice)
 			if err != nil {
+				log.Errorf("error setting head %s for thread %s, log %s", err.Error(), tid, l.ID)
 				continue
 			}
 		}
 		migrationData.Threads[tid.String()] = threadData
 	}
 
-	file, _ := json.MarshalIndent(migrationData, "", " ")
-	_ = ioutil.WriteFile("migration_data.json", file, 0644)
+	log.Infof("writing to migration_data.json")
+	file, err := json.MarshalIndent(migrationData, "", " ")
+	if err != nil {
+		log.Errorf("failed marshalling %s", err.Error())
+		return err
+	}
 
-	if isMigrationNeeded {
-		if logsWithProblems == 0 {
-			log.Info("finished migrating heads")
-		} else {
-			errString := fmt.Sprintf("finished migrating heads, %d logs have problems", logsWithProblems)
-			log.Errorf(errString)
-			return fmt.Errorf(errString)
-		}
+	err = ioutil.WriteFile("migration_data.json", file, 0644)
+	if err != nil {
+		log.Errorf("failed to write to file with %s", err.Error())
+		return err
+	}
+
+	if logsWithProblems == 0 {
+		log.Info("finished migrating heads")
+	} else {
+		errString := fmt.Sprintf("finished migrating heads, %d logs have problems", logsWithProblems)
+		log.Errorf(errString)
+		return fmt.Errorf(errString)
 	}
 
 	return nil
