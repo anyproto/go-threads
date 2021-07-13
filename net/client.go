@@ -47,6 +47,7 @@ func (s *server) getLogs(ctx context.Context, id thread.ID, pid peer.ID) ([]thre
 		ThreadID:   &pb.ProtoThreadID{ID: id},
 		ServiceKey: &pb.ProtoKey{Key: sk},
 	}
+	// TODO: remove signing when enough users update
 	sig, key, err := s.signRequestBody(body)
 	if err != nil {
 		return nil, err
@@ -95,7 +96,13 @@ func (s *server) pushLog(ctx context.Context, id thread.ID, lg thread.LogInfo, p
 	if rk != nil {
 		body.ReadKey = &pb.ProtoKey{Key: rk}
 	}
+
+	counter := body.Log.Counter
+	body.Log.Counter = 0 // to omit counter
+	// TODO: remove signing and counter magic when enough users update
 	sig, key, err := s.signRequestBody(body)
+	body.Log.Counter = counter
+
 	if err != nil {
 		return err
 	}
@@ -181,13 +188,15 @@ func (s *server) buildGetRecordsRequest(
 	}
 
 	var pblgs = make([]*pb.GetRecordsRequest_Body_LogEntry, 0, len(offsets))
+	var counters = make([]int64, 0, len(offsets))
 	for lid, offset := range offsets {
 		pblgs = append(pblgs, &pb.GetRecordsRequest_Body_LogEntry{
 			LogID:   &pb.ProtoPeerID{ID: lid},
 			Offset:  &pb.ProtoCid{Cid: offset.ID},
 			Limit:   int32(limit),
-			Counter: offset.Counter,
+			Counter: 0,
 		})
+		counters = append(counters, offset.Counter)
 	}
 
 	body := &pb.GetRecordsRequest_Body{
@@ -195,11 +204,14 @@ func (s *server) buildGetRecordsRequest(
 		ServiceKey: &pb.ProtoKey{Key: serviceKey},
 		Logs:       pblgs,
 	}
-
+	// TODO: remove signing and counter magic when enough users update
 	sig, key, err := s.signRequestBody(body)
 	if err != nil {
 		err = fmt.Errorf("signing GetRecords request: %w", err)
 		return
+	}
+	for i := range counters {
+		body.Logs[i].Counter = counters[i]
 	}
 
 	req = &pb.GetRecordsRequest{
@@ -322,6 +334,7 @@ func (s *server) pushRecord(ctx context.Context, tid thread.ID, lid peer.ID, rec
 		LogID:    &pb.ProtoPeerID{ID: lid},
 		Record:   pbrec,
 	}
+	// TODO: remove signing when enough users update
 	sig, key, err := s.signRequestBody(body)
 	if err != nil {
 		return err
@@ -396,7 +409,13 @@ func (s *server) pushRecordToPeer(
 			ThreadID: &pb.ProtoThreadID{ID: tid},
 			Log:      logToProto(lg),
 		}
+
+		// TODO: remove signing and counter magic when enough users update
+		counter := body.Log.Counter
+		body.Log.Counter = 0
 		sig, key, err := s.signRequestBody(body)
+		body.Log.Counter = counter
+
 		if err != nil {
 			return fmt.Errorf("signing PushLog request: %w", err)
 		}
@@ -448,6 +467,7 @@ func (s *server) exchangeEdges(ctx context.Context, pid peer.ID, tids []thread.I
 		return nil
 	}
 
+	// TODO: remove signing when enough users update
 	sig, key, err := s.signRequestBody(body)
 	if err != nil {
 		return fmt.Errorf("signing request body: %w", err)
