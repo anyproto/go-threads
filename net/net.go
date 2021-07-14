@@ -815,9 +815,13 @@ func (n *net) CreateRecord(
 		return
 	}
 	tr = NewRecord(r, id, lg.ID)
+	counter := lg.Head.Counter + 1
+	if lg.Head.IsFromBrokenLog() {
+		counter = thread.CounterUndef
+	}
 	head := thread.Head{
 		ID:      tr.Value().Cid(),
-		Counter: lg.Head.Counter + 1,
+		Counter: counter,
 	}
 	if err = n.store.SetHead(id, lg.ID, head); err != nil {
 		return
@@ -826,7 +830,7 @@ func (n *net) CreateRecord(
 	if err = n.bus.SendWithTimeout(tr, notifyTimeout); err != nil {
 		return
 	}
-	if err = n.server.pushRecord(ctx, id, lg.ID, tr.Value(), lg.Head.Counter+1); err != nil {
+	if err = n.server.pushRecord(ctx, id, lg.ID, tr.Value(), counter); err != nil {
 		return
 	}
 	return tr, nil
@@ -1069,7 +1073,9 @@ func (n *net) putRecords(ctx context.Context, tid thread.ID, lid peer.ID, recs [
 	updatedCounter := head.Counter
 	connector, appConnected := n.getConnector(tid)
 	for _, record := range chain {
-		updatedCounter++
+		if !head.IsFromBrokenLog() {
+			updatedCounter++
+		}
 		if err := n.store.SetHead(
 			tid,
 			lid,
@@ -1128,7 +1134,7 @@ func (n *net) loadRecords(
 	// check if the last record was already loaded and processed
 	var last = recs[len(recs)-1]
 	// if we don't have the counter (but have some recs) then we were communicating with old version peer
-	if counter == thread.CounterUndef {
+	if counter == thread.CounterUndef || head.IsFromBrokenLog() {
 		if exist, err := n.isKnown(last.Cid()); err != nil {
 			return nil, thread.HeadUndef, err
 		} else if exist || !last.Cid().Defined() {
@@ -1330,7 +1336,7 @@ func (n *net) getLocalRecords(
 		return nil, err
 	}
 	// reverting to old logic if the new one is not supported
-	if counter == thread.CounterUndef && offset != cid.Undef {
+	if counter == thread.CounterUndef && offset != cid.Undef || lg.Head.IsFromBrokenLog() {
 		if offset.Defined() {
 			// ensure that we know about requested offset
 			if knownRecord, err := n.isKnown(offset); err != nil {

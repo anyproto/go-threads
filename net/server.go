@@ -221,7 +221,7 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 		go func(tid thread.ID, lid peer.ID, off cid.Cid, lim int) {
 			defer wg.Done()
 			// if we don't have records in the log then skipping it
-			if pblg.Counter == thread.CounterUndef {
+			if pblg.Head.Cid == cid.Undef {
 				return
 			}
 
