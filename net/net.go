@@ -264,8 +264,13 @@ func (n *net) countRecords(ctx context.Context, tid thread.ID, rid cid.Cid) (int
 	}
 
 	for cursor.Defined() {
+		ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		r, err := cbor.GetRecord(ctx, n, cursor, sk)
+		cancel()
 		if err != nil {
+			log.With("thread id", tid.String()).
+				With("record id", cursor.String).
+				Error("failed to find record")
 			return 0, err
 		}
 		cursor = r.PrevID()
@@ -285,6 +290,7 @@ func (n *net) migrateHeadsIfNeeded(ctx context.Context, ls lstore.Logstore) (err
 	}
 
 	log.Info("checking for heads migration")
+	// TODO: Maybe add some state which tells us if we migrated the threads or not
 	isMigrationNeeded := false
 
 	for _, tid := range threadIds {
@@ -308,9 +314,13 @@ func (n *net) migrateHeadsIfNeeded(ctx context.Context, ls lstore.Logstore) (err
 					}
 					counter, err := n.countRecords(ctx, tid, h.ID)
 					if err != nil {
-						return err
+						log.With("thread id", tid.String()).
+							With("log id", l.ID.String()).
+							With("head id", h.ID.String()).
+							Error("failed to count records for thread, marking it as undefined")
+					} else {
+						log.Debugf("counter for thread %s, log %s, head %s is %d", tid, l.ID, h.ID, counter)
 					}
-					log.Debugf("counter for thread %s, log %s, head %s is %d", tid, l.ID, h.ID, counter)
 
 					hslice = append(hslice, thread.Head{ID: h.ID, Counter: counter})
 				} else {
