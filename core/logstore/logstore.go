@@ -40,6 +40,7 @@ type Logstore interface {
 	AddrBook
 	HeadBook
 	SyncBook
+	MigrationBook
 
 	// Threads returns all threads in the store.
 	Threads() (thread.IDSlice, error)
@@ -145,6 +146,20 @@ type KeyBook interface {
 
 	// RestoreKeys restores keys from the dump.
 	RestoreKeys(book DumpKeyBook) error
+}
+
+type MigrationVersion string
+const (
+	MigrationVersion1 MigrationVersion = "v1"
+)
+
+// MigrationBook stores completed migrations of different versions
+type MigrationBook interface {
+	// SetMigrationCompleted stores true boolean value for a specific migration
+	SetMigrationCompleted(MigrationVersion) error
+
+	// MigrationCompleted returns boolean value for a specific migration
+	MigrationCompleted(MigrationVersion) (bool, error)
 }
 
 // AddrBook stores log addresses.

@@ -26,6 +26,7 @@ type logstore struct {
 	core.ThreadMetadata
 	core.HeadBook
 	core.SyncBook
+	core.MigrationBook
 }
 
 // NewLogstore creates a new log store from the given books.
@@ -35,6 +36,7 @@ func NewLogstore(
 	hb core.HeadBook,
 	md core.ThreadMetadata,
 	sb core.SyncBook,
+	mb core.MigrationBook,
 ) core.Logstore {
 	return &logstore{
 		KeyBook:        kb,
@@ -42,6 +44,7 @@ func NewLogstore(
 		HeadBook:       hb,
 		ThreadMetadata: md,
 		SyncBook:       sb,
+		MigrationBook:  mb,
 	}
 }
 
@@ -60,6 +63,8 @@ func (ls *logstore) Close() (err error) {
 	weakClose("addressbook", ls.AddrBook)
 	weakClose("headbook", ls.HeadBook)
 	weakClose("threadmetadata", ls.ThreadMetadata)
+	weakClose("syncbook", ls.SyncBook)
+	weakClose("migrationbook", ls.MigrationBook)
 
 	if len(errs) > 0 {
 		return fmt.Errorf("failed while closing logstore; err(s): %q", errs)
