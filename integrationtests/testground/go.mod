@@ -21,4 +21,4 @@ require (
 	gopkg.in/alecthomas/kingpin.v2 v2.2.6
 )
 
-replace github.com/textileio/go-threads v1.1.0-rc1.0.20210629205351-b69fecf6a82b => /Volumes/ssd/projects/go-threads
+replace github.com/textileio/go-threads v1.1.0-rc1.0.20210629205351-b69fecf6a82b => github.com/anytypeio/go-threads v1.1.0-rc1.0.20210716093203-cee4c1d005c0
