@@ -12,6 +12,7 @@ import (
 
 	ipfslite "github.com/hsanjuan/ipfs-lite"
 	ds "github.com/ipfs/go-datastore"
+	blockstore "github.com/ipfs/go-ipfs-blockstore"
 	"github.com/libp2p/go-libp2p"
 	connmgr "github.com/libp2p/go-libp2p-connmgr"
 	cconnmgr "github.com/libp2p/go-libp2p-core/connmgr"
@@ -39,6 +40,7 @@ const (
 type NetBoostrapper interface {
 	app.Net
 	GetIpfsLite() *ipfslite.Peer
+	GetStores() (core.Logstore, blockstore.Blockstore)
 	Bootstrap(addrs []peer.AddrInfo)
 }
 
@@ -132,6 +134,8 @@ func DefaultNetwork(opts ...NetOption) (NetBoostrapper, error) {
 		Net:       api,
 		litepeer:  lite,
 		finalizer: fin,
+		bstore:    lite.BlockStore(),
+		lstore:    tstore,
 	}, nil
 }
 
@@ -389,6 +393,9 @@ type netBoostrapper struct {
 	app.Net
 	litepeer  *ipfslite.Peer
 	finalizer *util.Finalizer
+
+	lstore core.Logstore
+	bstore blockstore.Blockstore
 }
 
 var _ NetBoostrapper = (*netBoostrapper)(nil)
@@ -403,4 +410,8 @@ func (tsb *netBoostrapper) GetIpfsLite() *ipfslite.Peer {
 
 func (tsb *netBoostrapper) Close() error {
 	return tsb.finalizer.Cleanup(nil)
+}
+
+func (tsb *netBoostrapper) GetStores() (core.Logstore, blockstore.Blockstore) {
+	return tsb.lstore, tsb.bstore
 }

@@ -68,3 +68,55 @@ func CreateTestService(addr string, debug bool) (hostAddr ma.Multiaddr, gRPCAddr
 		_ = os.RemoveAll(dir)
 	}, nil
 }
+
+func CreateTestServiceWithBootstrapper(addr string, debug bool) (hostAddr ma.Multiaddr, gRPCAddr ma.Multiaddr, boostrapper common.NetBoostrapper, stop func(), err error) {
+	time.Sleep(time.Second * time.Duration(rand.Intn(5)))
+	dir, err := ioutil.TempDir("", "")
+	if err != nil {
+		return
+	}
+	if addr == "" {
+		hostAddr = util.FreeLocalAddr()
+	} else {
+		hostAddr, _ = ma.NewMultiaddr(addr)
+	}
+	n, err := common.DefaultNetwork(
+		common.WithNetBadgerPersistence(dir),
+		common.WithNetHostAddr(hostAddr),
+		common.WithNetPubSub(true),
+		common.WithNetDebug(debug),
+	)
+	if err != nil {
+		return
+	}
+	service, err := NewService(n, Config{
+		Debug: debug,
+	})
+	if err != nil {
+		return
+	}
+	gRPCAddr = util.FreeLocalAddr()
+	target, err := util.TCPAddrFromMultiAddr(gRPCAddr)
+	if err != nil {
+		return
+	}
+	server := grpc.NewServer()
+	listener, err := net.Listen("tcp", target)
+	if err != nil {
+		return
+	}
+	go func() {
+		pb.RegisterAPIServer(server, service)
+		if err := server.Serve(listener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
+			log.Fatalf("serve error: %v", err)
+		}
+	}()
+
+	return hostAddr, gRPCAddr, n, func() {
+		server.GracefulStop()
+		if err := n.Close(); err != nil {
+			return
+		}
+		_ = os.RemoveAll(dir)
+	}, nil
+}

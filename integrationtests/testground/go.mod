@@ -20,3 +20,5 @@ require (
 	google.golang.org/grpc v1.37.0
 	gopkg.in/alecthomas/kingpin.v2 v2.2.6
 )
+
+replace github.com/textileio/go-threads v1.1.0-rc1.0.20210629205351-b69fecf6a82b => /Volumes/ssd/projects/go-threads

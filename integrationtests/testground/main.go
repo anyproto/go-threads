@@ -26,12 +26,15 @@ import (
 	ipldcbor "github.com/ipfs/go-ipld-cbor"
 	logging "github.com/ipfs/go-log/v2"
 	crypto "github.com/libp2p/go-libp2p-core/crypto"
+	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/multiformats/go-multihash"
 	"github.com/testground/sdk-go/network"
 	"github.com/testground/sdk-go/run"
 	"github.com/testground/sdk-go/runtime"
 	sync "github.com/testground/sdk-go/sync"
+	"github.com/textileio/go-threads/common"
+	net2 "github.com/textileio/go-threads/net"
 	"google.golang.org/grpc"
 
 	corenet "github.com/textileio/go-threads/core/net"
@@ -93,8 +96,9 @@ func main() {
 	}
 	defer m.stopAndPrint()
 	run.InvokeMap(map[string]interface{}{
-		"sync-threads": run.InitializedTestCaseFn(testSyncThreads),
+		"sync-threads":      run.InitializedTestCaseFn(testSyncThreads),
 		"bitswap-sync-race": run.InitializedTestCaseFn(testBitswapSyncRace),
+		"broken-logs":       run.InitializedTestCaseFn(testBrokenLogSync),
 	})
 }
 
@@ -106,11 +110,15 @@ func testBitswapSyncRace(env *runtime.RunEnv, ic *run.InitContext) (err error) {
 	return testMultipleRounds("testBitswapSyncRace", env, ic, testBitswapSyncRaceRound)
 }
 
+func testBrokenLogSync(env *runtime.RunEnv, ic *run.InitContext) (err error) {
+	return testMultipleRounds("testBrokenLogs", env, ic, testBrokenLogSyncRound)
+}
+
 func testMultipleRounds(
 	stateName string,
 	env *runtime.RunEnv,
 	ic *run.InitContext,
-	testRound func (context.Context, *runtime.RunEnv, *run.InitContext, string, string) error) (err error) {
+	testRound func(context.Context, *runtime.RunEnv, *run.InitContext, string, string) error) (err error) {
 	msg = func(msg string, args ...interface{}) {
 		env.RecordMessage(msg, args...)
 	}
@@ -123,8 +131,8 @@ func testMultipleRounds(
 		env.RecordFailure(fmt.Errorf(msg, args...))
 	}
 	setup(env, ic)
-	successState := sync.State(stateName+"-success")
-	failState := sync.State(stateName+"-fail")
+	successState := sync.State(stateName + "-success")
+	failState := sync.State(stateName + "-fail")
 	barrierSuccess := ic.SyncClient.MustBarrier(context.Background(), successState, env.TestInstanceCount)
 	barrierFail := ic.SyncClient.MustBarrier(context.Background(), failState, 1)
 	go func() {
@@ -268,6 +276,160 @@ func testBitswapSyncRaceRound(ctx context.Context, env *runtime.RunEnv, ic *run.
 	}
 
 	ic.SyncClient.MustSignalAndWait(ctx, donePhase1, livePeers)
+	stop()
+	return nil
+}
+
+func testBrokenLogSyncRound(ctx context.Context, env *runtime.RunEnv, ic *run.InitContext, round string, desiredAddr string) error {
+	var cli *client.Client
+	var boot common.NetBoostrapper
+	var stop func()
+
+	net2.InitialPullInterval = 15
+	isFirst := env.BooleanParam("first")
+	isSecond := env.BooleanParam("second")
+
+	var err error
+
+	chThreadToJoin := make(chan *SharedInfo, 1)
+	topic := sync.NewTopic("thread-"+round, &SharedInfo{})
+	var thr *threadWithKeys
+	recordsToSend := env.IntParam("records")
+
+	// creating thread only on first peer
+	var logId peer.ID
+	if isFirst {
+		cli, boot, stop, err = startClientWithBootstrapper(desiredAddr, env, ic)
+		if err != nil {
+			return err
+		}
+		thr, err = createThread(ctx, cli)
+		if err != nil {
+			msg("Failed to create the thread: %v", err)
+			return err
+		}
+		msg("Created thread")
+		if err := thr.CreateRecords(ctx, recordsToSend); err != nil {
+			return err
+		}
+		msg("Peer #%d created %d records", ic.GlobalSeq, recordsToSend)
+		shareable := thr.Sharable()
+		logId = shareable.LogId
+		ic.SyncClient.MustPublishSubscribe(ctx,
+			topic,
+			shareable,
+			chThreadToJoin)
+		msg("Published thread")
+	} else {
+		ic.SyncClient.MustSubscribe(ctx, topic, chThreadToJoin)
+	}
+
+	livePeers := 2
+	if isSecond {
+		shareable := <-chThreadToJoin
+		logId = shareable.LogId
+		cli, boot, stop, err = startClientWithBootstrapper(desiredAddr, env, ic)
+		if err != nil {
+			return err
+		}
+		// when we call AddThreads we call getRecords, so the second instance will try to get all records
+		// from the first instance
+		thr, err = joinThread(ctx, cli, shareable)
+		if err != nil {
+			return fmt.Errorf("failed to join thread: %w", err)
+		}
+
+		// this is a bit of a hack, because we are using it just to save the head of the log which the thread received
+		thr.logHead = shareable.LogHead
+		msg("Joined thread")
+	}
+	ic.SyncClient.MustSignalAndWait(ctx, sync.State("ready-"+round+"-phase1"), livePeers)
+	donePhase1 := sync.State("done-" + round + "-phase1")
+
+	// After sync
+	if isFirst {
+		records, err := thr.GetRecords(ctx, thr.logHead)
+		if err != nil {
+			return fmt.Errorf("error getting records: %w", err)
+		}
+		middle := records[len(records)/2]
+		lstore, bstore := boot.GetStores()
+		// deleting some block in the middle to break things
+		err = bstore.DeleteBlock(middle.Cid())
+		msg("Deleted record with id %s", middle.Cid().String())
+		if err != nil {
+			return fmt.Errorf("failed to delete block: %w", err)
+		}
+
+		// setting head to 0 to start special mode for sync
+		err = lstore.SetHead(thr.ID, logId, thread.Head{
+			ID:      records[0].Cid(),
+			Counter: 0,
+		})
+		if err != nil {
+			return fmt.Errorf("error setting head")
+		}
+		msg("Set head counter to 0")
+	} else {
+		records, err := thr.GetRecords(ctx, thr.logHead)
+		if err != nil {
+			return fmt.Errorf("error getting records: %w", err)
+		}
+		lstore, bstore := boot.GetStores()
+		// deleting some records to emulate the situation when the peer has less records
+		for i := 0; i < len(records)/4; i++ {
+			err = bstore.DeleteBlock(records[i].Cid())
+			if err != nil {
+				return fmt.Errorf("failed to delete block: %w", err)
+			}
+		}
+		newCounter := len(records) - len(records)/4
+		err = lstore.SetHead(thr.ID, logId, thread.Head{
+			ID:      records[len(records)/4].Cid(),
+			Counter: int64(newCounter),
+		})
+		if err != nil {
+			return fmt.Errorf("error setting head")
+		}
+		heads, err := thr.GetHeads(ctx)
+		headFound := false
+		for _, head := range heads {
+			if head.ID == records[len(records)/4].Cid() {
+				headFound = true
+			}
+		}
+		msg("Now head is %s for %s", records[len(records)/4].Cid().String(), logId.String())
+		if !headFound {
+			return fmt.Errorf("Couldn't find the log")
+		}
+	}
+	ic.SyncClient.MustSignalAndWait(ctx, donePhase1, livePeers)
+	donePhase2 := sync.State("done-" + round + "-phase2")
+
+	// Adding a little timeout to make sure that records are finished syncing
+	tk := time.NewTicker(10 * time.Second)
+	defer tk.Stop()
+	<-tk.C
+	if isSecond {
+		heads, err := thr.GetHeads(ctx)
+		if err != nil {
+			return err
+		}
+		// trying to find head from the log of the first instance to see if it was synchronized
+		headFound := false
+		msg("Searching for head %s", thr.logHead.String())
+		for _, head := range heads {
+			if head.ID == thr.logHead {
+				headFound = true
+			}
+		}
+		if !headFound {
+			return fmt.Errorf("could not find head")
+		}
+		msg("Found log with correct number records")
+	}
+
+	ic.SyncClient.MustSignalAndWait(ctx, donePhase2, livePeers)
 	stop()
 	return nil
 }
@@ -486,10 +648,32 @@ func startClient(desiredAddr string, env *runtime.RunEnv, ic *run.InitContext) (
 	}, nil
 }
 
+func startClientWithBootstrapper(desiredAddr string, env *runtime.RunEnv, ic *run.InitContext) (*client.Client, common.NetBoostrapper, func(), error) {
+	// starts the API server and client
+	hostAddr, gRPCAddr, n, shutdown, err := api.CreateTestServiceWithBootstrapper(desiredAddr, env.IntParam("verbose") > 1)
+	if err != nil {
+		return nil, nil, func() {}, err
+	}
+	msg("Peer #%d, p2p listening on %v, gRPC listening on %v", ic.GlobalSeq, hostAddr, gRPCAddr)
+	target, err := util.TCPAddrFromMultiAddr(gRPCAddr)
+	if err != nil {
+		return nil, nil, shutdown, err
+	}
+	cli, err := client.NewClient(target, grpc.WithInsecure(), grpc.WithPerRPCCredentials(thread.Credentials{}))
+	if err != nil {
+		return nil, nil, shutdown, err
+	}
+	return cli, n, func() {
+		cli.Close()
+		shutdown()
+	}, nil
+}
+
 // SharedInfo includes info shared among peers via testground pubsub
 type SharedInfo struct {
 	Addr      string // multiaddr.Multiaddr
 	ThreadKey string // thread.Key
+	LogId     peer.ID
 	LogHead   cid.Cid
 	ThreadId  thread.ID
 }
@@ -531,6 +715,12 @@ func createThread(ctx context.Context, cli *client.Client) (thr *threadWithKeys,
 	if err != nil {
 		return nil, err
 	}
+	peerId, err := peer.IDFromPublicKey(logPk)
+	if err != nil {
+		panic("error when trying to share")
+	}
+	msg("My log is %s", peerId.String())
+
 	ch, err := cli.Subscribe(context.Background(), corenet.WithSubFilter(info.ID))
 	if err != nil {
 		return nil, err
@@ -552,6 +742,11 @@ func joinThread(ctx context.Context, cli *client.Client, shared *SharedInfo) (*t
 	if err != nil {
 		return nil, err
 	}
+	peerId, err := peer.IDFromPublicKey(logPk)
+	if err != nil {
+		panic("error when trying to share")
+	}
+	msg("My log is %s", peerId.String())
 	sk, _, err := crypto.GenerateEd25519Key(crand.Reader)
 	if err != nil {
 		return nil, err
@@ -573,7 +768,11 @@ func joinThread(ctx context.Context, cli *client.Client, shared *SharedInfo) (*t
 }
 
 func (t *threadWithKeys) Sharable() *SharedInfo {
-	return &SharedInfo{t.Addrs[0].String(), t.Key.String(), t.logHead, t.ID}
+	peerId, err := peer.IDFromPublicKey(t.logPk)
+	if err != nil {
+		panic("error when trying to share")
+	}
+	return &SharedInfo{t.Addrs[0].String(), t.Key.String(), peerId, t.logHead, t.ID}
 }
 
 // WaitForRecords blocks until it receives nRecords, then return them
@@ -620,6 +819,7 @@ func (t *threadWithKeys) GetHeads(ctx context.Context) (heads []thread.Head, err
 		return nil, err
 	}
 	for _, log := range info.Logs {
+		msg("head %s for log %s", log.Head.ID.String(), log.ID.String())
 		heads = append(heads, log.Head)
 	}
 	return
