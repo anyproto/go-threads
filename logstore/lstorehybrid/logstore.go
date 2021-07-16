@@ -383,3 +383,11 @@ func (l *lstore) RestoreSync(dump core.DumpSyncBook) error {
 	}
 	return l.inMem.RestoreSync(dump)
 }
+
+func (l *lstore) SetMigrationCompleted(version core.MigrationVersion) error {
+	return l.persist.SetMigrationCompleted(version)
+}
+
+func (l *lstore) MigrationCompleted(version core.MigrationVersion) (bool, error) {
+	return l.persist.MigrationCompleted(version)
+}

@@ -270,8 +270,15 @@ func (n *net) migrateHeadsIfNeeded(ctx context.Context, ls lstore.Logstore) (err
 	}
 
 	log.Info("checking for heads migration")
-	// TODO: Maybe add some state which tells us if we migrated the threads or not
-	isMigrationNeeded := false
+	completed, err := n.store.MigrationCompleted(lstore.MigrationVersion1);
+	if completed {
+		log.Info("heads already migrated")
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("error getting migration state: %w", err)
+	}
+	log.Info("starting migrating heads")
 
 	for _, tid := range threadIds {
 		tInfo, err := ls.GetThread(tid)
@@ -288,10 +295,6 @@ func (n *net) migrateHeadsIfNeeded(ctx context.Context, ls lstore.Logstore) (err
 			for _, h := range heads {
 				// In this case we didn't migrate the thread
 				if h.Counter == thread.CounterUndef && h.ID != cid.Undef {
-					if !isMigrationNeeded {
-						log.Info("starting migrating heads")
-						isMigrationNeeded = true
-					}
 					counter, err := n.countRecords(ctx, tid, h.ID)
 					if err != nil {
 						log.With("thread id", tid.String()).
@@ -314,9 +317,11 @@ func (n *net) migrateHeadsIfNeeded(ctx context.Context, ls lstore.Logstore) (err
 		}
 	}
 
-	if isMigrationNeeded {
-		log.Info("finished migrating heads")
+	err = n.store.SetMigrationCompleted(lstore.MigrationVersion1)
+	if err != nil {
+		return fmt.Errorf("migration succeded but failed to save migration state: %w", err)
 	}
+	log.Info("finished migrating heads")
 
 	return nil
 }

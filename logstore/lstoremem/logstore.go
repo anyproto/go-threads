@@ -15,5 +15,6 @@ func NewLogstore() core.Logstore {
 		NewAddrBook(),
 		NewHeadBook(),
 		NewThreadMetadata(),
-		NewSyncBook())
+		NewSyncBook(),
+		NewMigrationBook())
 }

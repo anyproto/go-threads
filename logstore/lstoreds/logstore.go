@@ -63,7 +63,9 @@ func NewLogstore(ctx context.Context, store ds.Batching, opts Options) (core.Log
 
 	syncBook := NewSyncBook(store.(ds.TxnDatastore))
 
-	ps := lstore.NewLogstore(keyBook, addrBook, headBook, threadMetadata, syncBook)
+	migrationBook := NewMigrationBook(store)
+
+	ps := lstore.NewLogstore(keyBook, addrBook, headBook, threadMetadata, syncBook, migrationBook)
 	return ps, nil
 }
 
