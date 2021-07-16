@@ -213,7 +213,7 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 		}
 
 		wg.Add(1)
-		go func(tid thread.ID, lid peer.ID, off cid.Cid, lim int) {
+		go func(tid thread.ID, lid peer.ID, off cid.Cid, head cid.Cid, lim int) {
 			defer wg.Done()
 			// if we don't have records in the log then skipping it
 			if pblg.Head.Cid == cid.Undef {
@@ -250,8 +250,8 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 			})
 			mx.Unlock()
 
-			log.With("thread", tid.String()).With("peer", pid.String()).With("offset", off.String()).With("head", lg.Head.ID.String()).Debugf("sending %d records in log to remote peer", len(recs))
-		}(req.Body.ThreadID.ID, lg.ID, offset, limit)
+			log.With("thread", tid.String()).With("peer", pid.String()).With("offset", off.String()).With("head", head).Debugf("sending %d records in log to remote peer", len(recs))
+		}(req.Body.ThreadID.ID, lg.ID, offset, lg.Head.ID, limit)
 	}
 
 	wg.Wait()
