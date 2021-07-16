@@ -526,7 +526,7 @@ func createThread(ctx context.Context, cli *client.Client) (thr *threadWithKeys,
 
 	info, err := cli.CreateThread(ctx, id,
 		corenet.WithThreadKey(tk),
-		corenet.WithLogKey(logPk),
+		corenet.WithLogKey(logSk),
 		corenet.WithNewThreadToken(tok))
 	if err != nil {
 		return nil, err
