@@ -331,13 +331,12 @@ func (n *net) migrateHeadsIfNeeded(ctx context.Context, ls lstore.Logstore) (err
 
 				counter, err := n.countRecords(ctx, tid, h.ID)
 				if err != nil {
-					log.Errorf("counting ended with error %s for thread %s, log %s, head %s only %d records were counted, setting nil head to preserve the invariant", err.Error(), tid, l.ID, h.ID, counter)
-					hslice = append(hslice, thread.HeadUndef)
-					continue
+					log.Errorf("counting ended with error %s for thread %s, log %s, head %s only %d records were counted, setting 0 counter", err.Error(), tid, l.ID, h.ID, counter)
+					hslice = append(hslice, thread.Head{ID: h.ID, Counter: thread.CounterUndef})
+				} else {
+					log.Infof("counted counter for thread %s, log %s, head %s is %d", tid, l.ID, h.ID, counter)
+					hslice = append(hslice, thread.Head{ID: h.ID, Counter: counter})
 				}
-
-				log.Infof("counted counter for thread %s, log %s, head %s is %d", tid, l.ID, h.ID, counter)
-				hslice = append(hslice, thread.Head{ID: h.ID, Counter: counter})
 			}
 			err = ls.SetHeads(tid, l.ID, hslice)
 			if err != nil {
