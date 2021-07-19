@@ -262,8 +262,8 @@ func (n *net) countRecords(ctx context.Context, tid thread.ID, rid cid.Cid) (int
 		}
 		cursor = r.PrevID()
 		counter += 1
-		if counter % 100 == 0 {
-			log.Debugf("counted %d records in thread %s", counter , tid.String())
+		if counter%100 == 0 {
+			log.Debugf("counted %d records in thread %s", counter, tid.String())
 		}
 	}
 	return counter, nil
@@ -282,6 +282,21 @@ type HeadData struct {
 	Counter int64
 }
 
+func readMigrationData(path string) (*MigrationData, error) {
+	var data MigrationData
+	file, err := ioutil.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	err = json.Unmarshal(file, &data)
+	if err != nil {
+		return nil, err
+	}
+
+	return &data, nil
+}
+
 func (n *net) migrateHeadsIfNeeded(ctx context.Context, ls lstore.Logstore) (err error) {
 	threadIds, err := ls.Threads()
 	if err != nil {
@@ -289,15 +304,21 @@ func (n *net) migrateHeadsIfNeeded(ctx context.Context, ls lstore.Logstore) (err
 	}
 
 	log.Info("starting migrating heads")
+	migrationData, err := readMigrationData("migration_data.json")
+	if err != nil {
+		return err
+	}
 
 	logsWithProblems := 0
-	migrationData := MigrationData{Threads: make(map[string]ThreadData)}
 	for _, tid := range threadIds {
 		tInfo, err := ls.GetThread(tid)
 		if err != nil {
 			return err
 		}
-		threadData := ThreadData{LogHeads: make(map[string]HeadData)}
+		threadData, ok := migrationData.Threads[tid.String()]
+		if !ok {
+			threadData = ThreadData{LogHeads: make(map[string]HeadData)}
+		}
 	logLoop:
 		for _, l := range tInfo.Logs {
 			heads, err := ls.Heads(tid, l.ID)
@@ -305,9 +326,25 @@ func (n *net) migrateHeadsIfNeeded(ctx context.Context, ls lstore.Logstore) (err
 				return err
 			}
 			hslice := make([]thread.Head, 0)
+			logData, ok := threadData.LogHeads[l.ID.String()]
+			if !ok {
+				logData = HeadData{
+					Head:    "",
+					Counter: thread.CounterUndef,
+				}
+			}
 
 			for _, h := range heads {
-				// In this case we didn't migrate the thread
+				// if the heads are the same
+				if h.ID.String() == logData.Head {
+					log.Infof("head %s for log %s and thread %s is the same as in migration file", h.ID.String(), l.ID.String(), tid.String())
+					hslice = append(hslice, thread.Head{
+						ID:      h.ID,
+						Counter: logData.Counter,
+					})
+					continue
+				}
+
 				if h.Counter == thread.CounterUndef && h.ID != cid.Undef {
 					counter, err := n.countRecords(ctx, tid, h.ID)
 					if err != nil {
