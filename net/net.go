@@ -184,10 +184,7 @@ func NewNetwork(
 		queueGetRecords: queue.NewFFQueue(ctx, QueuePollInterval, conf.NetPullingInterval),
 	}
 
-	err := n.migrateHeadsIfNeeded(ctx, ls)
-	if err != nil {
-		return nil, err
-	}
+	go n.migrateHeadsIfNeeded(ctx, ls)
 
 	n.server, err = newServer(n, dialOptions...)
 	if err != nil {
@@ -253,7 +250,7 @@ func (n *net) monitorReachability(ctx context.Context) {
 	}
 }
 
-func (n *net) countRecords(ctx context.Context, tid thread.ID, rid cid.Cid) (int64, error) {
+func (n *net) countRecords(ctx context.Context, tid thread.ID, rid cid.Cid, offset cid.Cid) (int64, error) {
 	var (
 		cursor        = rid
 		counter int64 = 0
@@ -263,7 +260,18 @@ func (n *net) countRecords(ctx context.Context, tid thread.ID, rid cid.Cid) (int
 		return 0, err
 	}
 
-	for cursor.Defined() {
+	var isOffsetReached func(cursor cid.Cid) bool
+	if offset.Defined() {
+		isOffsetReached = func(cursor cid.Cid) bool {
+			return cursor.Equals(offset)
+		}
+	} else {
+		isOffsetReached = func(cursor cid.Cid) bool {
+			return false
+		}
+	}
+
+	for cursor.Defined() && !isOffsetReached(cursor) {
 		ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		r, err := cbor.GetRecord(ctx, n, cursor, sk)
 		cancel()
@@ -279,6 +287,76 @@ func (n *net) countRecords(ctx context.Context, tid thread.ID, rid cid.Cid) (int
 	return counter, nil
 }
 
+func (n *net) migrateLog(ctx context.Context, tid thread.ID, lid peer.ID, ls lstore.Logstore) error {
+	heads, err := ls.Heads(tid, lid)
+	if err != nil {
+		return err
+	}
+	if len(heads) == 0 {
+		return nil
+	}
+
+	// our logs have only one head
+	h := heads[0]
+
+	// we have already migrated the log
+	if h.Counter != thread.CounterUndef {
+		return nil
+	}
+
+	isBroken := false
+	counter, err := n.countRecords(ctx, tid, h.ID, cid.Undef)
+	if err != nil {
+		log.With("thread id", tid.String()).
+			With("log id", lid.String()).
+			With("head id", h.ID.String()).
+			Error("failed to count records for thread, marking it as undefined")
+		isBroken = true
+	} else {
+		log.With("thread id", tid.String()).
+			With("log id", lid.String()).
+			With("head id", h.ID.String()).
+			With("counter", counter).
+			Debug("counted records for thread")
+	}
+
+	ts := n.semaphores.Get(semaThreadUpdate(tid))
+	ts.Acquire()
+	defer ts.Release()
+
+	if current, err := n.currentHead(tid, lid); err != nil {
+		return fmt.Errorf("fetching head failed: %w", err)
+	} else if !current.ID.Equals(h.ID) && !isBroken {
+		// count additional records
+		additionalCounter, err := n.countRecords(ctx, tid, current.ID, h.ID)
+
+		// this should not happen hopefully :-)
+		if err != nil {
+			log.With("thread id", tid.String()).
+				With("log id", lid.String()).
+				With("head id", h.ID.String()).
+				Error("failed to count additional records, returning error")
+			return fmt.Errorf("counting additional records failed: %w", err)
+		}
+		counter += additionalCounter
+		log.With("thread id", tid.String()).
+			With("log id", lid.String()).
+			With("head id", h.ID.String()).
+			With("counter", counter).
+			Debug("updated records counter for thread")
+		h = current
+	}
+
+	err = ls.SetHead(tid, lid, thread.Head{
+		ID:      h.ID,
+		Counter: counter,
+	})
+	if err != nil {
+		return fmt.Errorf("setting head failed: %w", err)
+	}
+	return nil
+}
+
 func (n *net) migrateHeadsIfNeeded(ctx context.Context, ls lstore.Logstore) (err error) {
 	if n.conf.NoExchangeEdgesMigration {
 		return nil
@@ -286,64 +364,54 @@ func (n *net) migrateHeadsIfNeeded(ctx context.Context, ls lstore.Logstore) (err
 
 	threadIds, err := ls.Threads()
 	if err != nil {
-		return err
+		log.Errorf("could not get threads from logstore: %v", err)
+		return
 	}
 
 	log.Info("checking for heads migration")
-	completed, err := n.store.MigrationCompleted(lstore.MigrationVersion1);
+	completed, err := n.store.MigrationCompleted(lstore.MigrationVersion1)
+	if err != nil {
+		log.Errorf("error getting migration state: %v", err)
+		return
+	}
 	if completed {
 		log.Info("heads already migrated")
-		return nil
+		return
 	}
-	if err != nil {
-		return fmt.Errorf("error getting migration state: %w", err)
-	}
+
 	log.Info("starting migrating heads")
 
+	shouldMarkMigrationCompleted := true
 	for _, tid := range threadIds {
 		tInfo, err := ls.GetThread(tid)
 		if err != nil {
-			return err
+			log.With("thread", tid.String()).
+				Errorf("error getting thread: %v", err)
+			shouldMarkMigrationCompleted = false
+			continue
 		}
 
 		for _, l := range tInfo.Logs {
-			heads, err := ls.Heads(tid, l.ID)
+			err = n.migrateLog(ctx, tid, l.ID, ls)
 			if err != nil {
-				return err
-			}
-			hslice := make([]thread.Head, 0)
-			for _, h := range heads {
-				// In this case we didn't migrate the thread
-				if h.Counter == thread.CounterUndef && h.ID != cid.Undef {
-					counter, err := n.countRecords(ctx, tid, h.ID)
-					if err != nil {
-						log.With("thread id", tid.String()).
-							With("log id", l.ID.String()).
-							With("head id", h.ID.String()).
-							Error("failed to count records for thread, marking it as undefined")
-					} else {
-						log.Debugf("counter for thread %s, log %s, head %s is %d", tid, l.ID, h.ID, counter)
-					}
-
-					hslice = append(hslice, thread.Head{ID: h.ID, Counter: counter})
-				} else {
-					hslice = append(hslice, h)
-				}
-			}
-			err = ls.SetHeads(tid, l.ID, hslice)
-			if err != nil {
-				return err
+				log.With("thread", tid.String()).
+					With("log", l.ID.String()).
+					Error("error migrating log: %v", err)
+				shouldMarkMigrationCompleted = false
 			}
 		}
 	}
 
-	err = n.store.SetMigrationCompleted(lstore.MigrationVersion1)
-	if err != nil {
-		return fmt.Errorf("migration succeded but failed to save migration state: %w", err)
+	if shouldMarkMigrationCompleted {
+		err = n.store.SetMigrationCompleted(lstore.MigrationVersion1)
+		if err != nil {
+			log.Errorf("migration succeded but failed to save migration state: %v", err)
+			return
+		}
+		log.Info("finished migrating heads")
+	} else {
+		log.Error("there were errors in migration, will try to migrate errored logs next time")
 	}
-	log.Info("finished migrating heads")
-
-	return nil
 }
 
 func (n *net) Close() (err error) {
