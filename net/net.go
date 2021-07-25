@@ -168,7 +168,7 @@ func NewNetwork(
 		queueGetRecords: queue.NewFFQueue(ctx, QueuePollInterval, PullInterval),
 	}
 
-	go t.migrateHeadsIfNeeded(ctx, ls)
+	go t.migrateHeadsIfNeeded(ctx)
 
 	t.server, err = newServer(t, conf.PubSub, dialOptions...)
 	if err != nil {
@@ -271,8 +271,8 @@ func (n *net) countRecords(ctx context.Context, tid thread.ID, rid cid.Cid, offs
 	return counter, nil
 }
 
-func (n *net) migrateLog(ctx context.Context, tid thread.ID, lid peer.ID, ls lstore.Logstore) error {
-	heads, err := ls.Heads(tid, lid)
+func (n *net) migrateLog(ctx context.Context, tid thread.ID, lid peer.ID) error {
+	heads, err := n.store.Heads(tid, lid)
 	if err != nil {
 		return err
 	}
@@ -331,7 +331,7 @@ func (n *net) migrateLog(ctx context.Context, tid thread.ID, lid peer.ID, ls lst
 		h = current
 	}
 
-	err = ls.SetHead(tid, lid, thread.Head{
+	err = n.store.SetHead(tid, lid, thread.Head{
 		ID:      h.ID,
 		Counter: counter,
 	})
@@ -341,8 +341,8 @@ func (n *net) migrateLog(ctx context.Context, tid thread.ID, lid peer.ID, ls lst
 	return nil
 }
 
-func (n *net) migrateHeadsIfNeeded(ctx context.Context, ls lstore.Logstore) {
-	threadIds, err := ls.Threads()
+func (n *net) migrateHeadsIfNeeded(ctx context.Context) {
+	threadIds, err := n.store.Threads()
 	if err != nil {
 		log.Errorf("could not get threads from logstore: %v", err)
 		return
@@ -363,7 +363,7 @@ func (n *net) migrateHeadsIfNeeded(ctx context.Context, ls lstore.Logstore) {
 
 	shouldMarkMigrationCompleted := true
 	for _, tid := range threadIds {
-		tInfo, err := ls.GetThread(tid)
+		tInfo, err := n.store.GetThread(tid)
 		if err != nil {
 			log.With("thread", tid.String()).
 				Errorf("error getting thread: %v", err)
@@ -372,7 +372,7 @@ func (n *net) migrateHeadsIfNeeded(ctx context.Context, ls lstore.Logstore) {
 		}
 
 		for _, l := range tInfo.Logs {
-			err = n.migrateLog(ctx, tid, l.ID, ls)
+			err = n.migrateLog(ctx, tid, l.ID)
 			if err != nil {
 				log.With("thread", tid.String()).
 					With("log", l.ID.String()).
@@ -389,6 +389,9 @@ func (n *net) migrateHeadsIfNeeded(ctx context.Context, ls lstore.Logstore) {
 			return
 		}
 		log.Info("finished migrating heads")
+		// this is a sanity check that we have correct counters in the end of migration
+		// use only for testing
+		// go n.recountHeads(ctx)
 	} else {
 		log.Error("there were errors in migration, will try to migrate errored logs next time")
 	}
@@ -889,6 +892,18 @@ func (n *net) CreateRecord(
 		}
 	}
 
+
+	releaseIfNeeded := func() {}
+	// check if we need to take semaphore before adding record
+	// this can happen during background migration, because we can set an incorrect counter
+	if completed, _ := n.store.MigrationCompleted(lstore.MigrationVersion1); !completed {
+		ts := n.semaphores.Get(semaThreadUpdate(id))
+		ts.Acquire()
+		releaseIfNeeded = func() {
+			ts.Release()
+		}
+	}
+
 	lg, err := n.getOrCreateLog(id, identity)
 	if err != nil {
 		return
@@ -909,6 +924,9 @@ func (n *net) CreateRecord(
 	if err = n.store.SetHead(id, lg.ID, head); err != nil {
 		return
 	}
+
+	releaseIfNeeded()
+
 	log.Debugf("created record %s (thread=%s, log=%s)", tr.Value().Cid(), id, lg.ID)
 	if err = n.bus.SendWithTimeout(tr, notifyTimeout); err != nil {
 		return

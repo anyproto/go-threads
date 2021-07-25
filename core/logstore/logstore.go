@@ -160,6 +160,12 @@ type MigrationBook interface {
 
 	// MigrationCompleted returns boolean value for a specific migration
 	MigrationCompleted(MigrationVersion) (bool, error)
+	
+	// DumpMigrations packs all stored migrations
+	DumpMigrations() (DumpMigrationBook, error)
+	
+	// RestoreMigrations gets all migration statuses from a DumpMigrationBook
+	RestoreMigrations(dump DumpMigrationBook) error
 }
 
 // AddrBook stores log addresses.
@@ -245,6 +251,10 @@ type SyncBook interface {
 type (
 	DumpHeadBook struct {
 		Data map[thread.ID]map[peer.ID][]thread.Head
+	}
+
+	DumpMigrationBook struct {
+		Migrations map[string]struct{}
 	}
 
 	ExpiredAddress struct {
