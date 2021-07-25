@@ -38,6 +38,10 @@ func NewLogstore(persist, inMem core.Logstore) (*lstore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("dumping metadata from persistent storage: %w", err)
 	}
+	dMigrations, err := persist.DumpMigrations()
+	if err != nil {
+		return nil, fmt.Errorf("dumping migrations from persistent storage: %w", err)
+	}
 
 	// initialize in-memory storage
 	if err := inMem.RestoreKeys(dKeys); err != nil {
@@ -51,6 +55,9 @@ func NewLogstore(persist, inMem core.Logstore) (*lstore, error) {
 	}
 	if err := inMem.RestoreMeta(dMeta); err != nil {
 		return nil, fmt.Errorf("initializing in-memory storage with metadata: %w", err)
+	}
+	if err := inMem.RestoreMigrations(dMigrations); err != nil {
+		return nil, fmt.Errorf("initializing in-memory storage with migrations: %w", err)
 	}
 
 	return &lstore{inMem: inMem, persist: persist}, nil
@@ -385,9 +392,23 @@ func (l *lstore) RestoreSync(dump core.DumpSyncBook) error {
 }
 
 func (l *lstore) SetMigrationCompleted(version core.MigrationVersion) error {
-	return l.persist.SetMigrationCompleted(version)
+	if err := l.persist.SetMigrationCompleted(version); err != nil {
+		return err
+	}
+	return l.inMem.SetMigrationCompleted(version)
 }
 
 func (l *lstore) MigrationCompleted(version core.MigrationVersion) (bool, error) {
-	return l.persist.MigrationCompleted(version)
+	return l.inMem.MigrationCompleted(version)
+}
+
+func (l *lstore) DumpMigrations() (core.DumpMigrationBook, error) {
+	return l.inMem.DumpMigrations()
+}
+
+func (l *lstore) RestoreMigrations(dump core.DumpMigrationBook) error {
+	if err := l.persist.RestoreMigrations(dump); err != nil {
+		return err
+	}
+	return l.inMem.RestoreMigrations(dump)
 }

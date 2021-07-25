@@ -41,3 +41,27 @@ func (mb *dsMigrationBook) MigrationCompleted(version core.MigrationVersion) (bo
 	}
 	return true, nil
 }
+
+func (mb *dsMigrationBook) DumpMigrations() (core.DumpMigrationBook, error) {
+	data := make(map[string]struct{})
+	// when there will be more migrations we can have more sophisticated logic :-)
+	firstMigrationCompleted, err := mb.MigrationCompleted(core.MigrationVersion1)
+	if err != nil {
+		return core.DumpMigrationBook{Migrations: data}, err
+	}
+	if firstMigrationCompleted {
+		data[string(core.MigrationVersion1)] = struct{}{}
+	}
+
+	return core.DumpMigrationBook{Migrations: data}, err
+}
+
+func (mb *dsMigrationBook) RestoreMigrations(dump core.DumpMigrationBook) error {
+	// when there will be more migrations we can have more sophisticated logic :-)
+	_, firstMigrationCompleted := dump.Migrations[string(core.MigrationVersion1)]
+	if firstMigrationCompleted {
+		return mb.SetMigrationCompleted(core.MigrationVersion1)
+	}
+
+	return nil
+}

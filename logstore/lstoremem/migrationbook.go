@@ -21,3 +21,12 @@ func (mb *memoryMigrationBook) MigrationCompleted(version core.MigrationVersion)
 	_, ok := mb.migrations[string(version)]
 	return ok, nil
 }
+
+func (mb *memoryMigrationBook) DumpMigrations() (core.DumpMigrationBook, error) {
+	return core.DumpMigrationBook{Migrations: mb.migrations}, nil
+}
+
+func (mb *memoryMigrationBook) RestoreMigrations(dump core.DumpMigrationBook) error {
+	mb.migrations = dump.Migrations
+	return nil
+}
