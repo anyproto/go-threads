@@ -385,7 +385,7 @@ func (n *net) migrateHeadsIfNeeded(ctx context.Context) {
 			if err != nil {
 				log.With("thread", tid.String()).
 					With("log", l.ID.String()).
-					Error("error migrating log: %v", err)
+					Errorf("error migrating log: %v", err)
 				shouldMarkMigrationCompleted = false
 			}
 		}
