@@ -892,7 +892,6 @@ func (n *net) CreateRecord(
 		}
 	}
 
-
 	releaseIfNeeded := func() {}
 	// check if we need to take semaphore before adding record
 	// this can happen during background migration, because we can set an incorrect counter
