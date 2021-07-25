@@ -244,18 +244,7 @@ func (n *net) countRecords(ctx context.Context, tid thread.ID, rid cid.Cid, offs
 		return 0, err
 	}
 
-	var isOffsetReached func(cursor cid.Cid) bool
-	if offset.Defined() {
-		isOffsetReached = func(cursor cid.Cid) bool {
-			return cursor.Equals(offset)
-		}
-	} else {
-		isOffsetReached = func(cursor cid.Cid) bool {
-			return false
-		}
-	}
-
-	for cursor.Defined() && !isOffsetReached(cursor) {
+	for !cursor.Equals(offset) {
 		ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		r, err := cbor.GetRecord(ctx, n, cursor, sk)
 		cancel()
