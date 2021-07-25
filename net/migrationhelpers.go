@@ -11,6 +11,10 @@ import (
 )
 
 func (n *net) recountAndCheck(ctx context.Context, tid thread.ID, lid peer.ID) error {
+	ts := n.semaphores.Get(semaThreadUpdate(tid))
+	ts.Acquire()
+	defer ts.Release()
+
 	heads, err := n.store.Heads(tid, lid)
 	if err != nil {
 		return err
@@ -22,9 +26,6 @@ func (n *net) recountAndCheck(ctx context.Context, tid thread.ID, lid peer.ID) e
 	// our logs have only one head
 	h := heads[0]
 	isBroken := h.Counter == thread.CounterUndef && h.ID != cid.Undef
-	ts := n.semaphores.Get(semaThreadUpdate(tid))
-	ts.Acquire()
-	defer ts.Release()
 	counter, err := n.countRecords(ctx, tid, h.ID, cid.Undef)
 	if err != nil {
 		if isBroken {
