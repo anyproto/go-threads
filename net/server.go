@@ -192,7 +192,7 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 	pbrecs.Logs = make([]*pb.GetRecordsReply_LogEntry, 0, len(info.Logs))
 
 	var (
-		logRecordLimit = MaxPullLimit / len(info.Logs)
+		logRecordLimit = MaxPullLimit
 		failures       int32
 		mx             sync.Mutex
 		wg             sync.WaitGroup
