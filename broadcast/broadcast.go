@@ -52,6 +52,7 @@ func (e broadcastError) Error() string { return string(e) }
 // Broadcaster implements a Publisher. The zero value is a usable un-buffered channel.
 type Broadcaster struct {
 	m         sync.Mutex
+	r         sync.RWMutex
 	listeners map[uint]chan<- interface{} // lazy init
 	nextID    uint
 	capacity  int
@@ -69,12 +70,20 @@ func NewBroadcaster(n int) *Broadcaster {
 // Returns error(s) if it is unable to send on a given listener's channel within `timeout` duration.
 func (b *Broadcaster) SendWithTimeout(v interface{}, timeout time.Duration) error {
 	b.m.Lock()
-	defer b.m.Unlock()
+	lisCopy := make(map[uint]chan<- interface{})
+	for k, v := range b.listeners {
+		lisCopy[k] = v
+	}
+	b.m.Unlock()
+
+	// taking read lock to prevent sending to closed channels upon Discard call
+	b.r.RLock()
+	defer b.r.RUnlock()
 	if b.closed {
 		return ErrClosedChannel
 	}
 	var result *multierror.Error
-	for id, l := range b.listeners {
+	for id, l := range lisCopy {
 		select {
 		case l <- v:
 			// Success!
@@ -101,6 +110,8 @@ func (b *Broadcaster) Send(v interface{}) error {
 func (b *Broadcaster) Discard() {
 	b.m.Lock()
 	defer b.m.Unlock()
+	b.r.Lock()
+	defer b.r.Unlock()
 	if b.closed {
 		return
 	}
