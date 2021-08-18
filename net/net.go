@@ -519,8 +519,10 @@ func (n *net) CreateThread(
 	if err = n.store.AddThread(info); err != nil {
 		return
 	}
-	if _, err = n.createLog(id, args.LogKey, identity); err != nil {
-		return
+	if !args.NoLog {
+		if _, err = n.createLog(id, args.LogKey, identity); err != nil {
+			return
+		}
 	}
 	if err = n.server.addPubsubTopic(id); err != nil {
 		return
@@ -584,7 +586,7 @@ func (n *net) AddThread(
 	}); err != nil {
 		return
 	}
-	if args.ThreadKey.CanRead() || args.LogKey != nil {
+	if !args.NoLog && (args.ThreadKey.CanRead() || args.LogKey != nil) {
 		if _, err = n.createLog(id, args.LogKey, identity); err != nil {
 			return
 		}
@@ -762,18 +764,25 @@ func (n *net) AddReplicator(
 	if err != nil {
 		return
 	}
-	managedLogs, err := n.store.GetManagedLogs(info.ID)
-	if err != nil {
-		return
-	}
-	for _, lg := range managedLogs {
-		if err = n.store.AddAddr(info.ID, lg.ID, addr, pstore.PermanentAddrTTL); err != nil {
-			return
+
+	containsAddr := func (l thread.LogInfo) bool {
+		for _, a := range l.Addrs {
+			if a.Equal(addr) {
+				return true
+			}
 		}
+		return false
 	}
-	info, err = n.store.GetThread(info.ID) // Update info
-	if err != nil {
-		return
+
+	var unreplicatedLogs []thread.LogInfo
+	for _, lg := range info.Logs {
+		if !containsAddr(lg) {
+			if err = n.store.AddAddr(info.ID, lg.ID, addr, pstore.PermanentAddrTTL); err != nil {
+				return
+			}
+			lg.Addrs = append(lg.Addrs, addr)
+			unreplicatedLogs = append(unreplicatedLogs, lg)
+		}
 	}
 
 	// Check if we're dialing ourselves (regardless of addr)
@@ -785,17 +794,13 @@ func (n *net) AddReplicator(
 			n.host.Peerstore().AddAddr(pid, dialable, pstore.PermanentAddrTTL)
 		}
 
-		// Send all logs to the new replicator
-		for _, l := range info.Logs {
+		// Send all unreplicated logs to the new replicator
+		for _, l := range unreplicatedLogs {
 			if err = n.server.pushLog(ctx, info.ID, l, pid, info.Key.Service(), nil); err != nil {
-				for _, lg := range managedLogs {
-					// Rollback this log only and then bail
-					if lg.ID == l.ID {
-						if err := n.store.SetAddrs(info.ID, lg.ID, lg.Addrs, pstore.PermanentAddrTTL); err != nil {
-							log.Errorf("error rolling back log address change: %s", err)
-						}
-						break
-					}
+				// Rollback this log only and then bail
+				l.Addrs = l.Addrs[:len(l.Addrs)-1]
+				if err := n.store.SetAddrs(info.ID, l.ID, l.Addrs, pstore.PermanentAddrTTL); err != nil {
+					log.Errorf("error rolling back log address change: %s", err)
 				}
 				return
 			}
@@ -804,7 +809,7 @@ func (n *net) AddReplicator(
 
 	// Send the updated log(s) to peers
 	var addrs []ma.Multiaddr
-	for _, l := range info.Logs {
+	for _, l := range unreplicatedLogs {
 		addrs = append(addrs, l.Addrs...)
 	}
 	peers, err := n.uniquePeers(addrs)
@@ -817,7 +822,7 @@ func (n *net) AddReplicator(
 		wg.Add(1)
 		go func(pid peer.ID) {
 			defer wg.Done()
-			for _, lg := range managedLogs {
+			for _, lg := range unreplicatedLogs {
 				if err = n.server.pushLog(ctx, info.ID, lg, pid, nil, nil); err != nil {
 					log.Errorf("error pushing log %s to %s: %v", lg.ID, pid, err)
 				}
@@ -909,7 +914,7 @@ func (n *net) CreateRecord(
 		}
 	}
 
-	lg, err := n.getOrCreateLog(id, identity)
+	lg, err := n.getOrCreateLog(id, identity, args.LogPrivateKey)
 	if err != nil {
 		return
 	}
@@ -1657,7 +1662,7 @@ func (n *net) createLog(id thread.ID, key crypto.Key, identity thread.PubKey) (i
 
 // getOrCreateLog returns a log for identity under the given thread.
 // If no log exists, a new one is created.
-func (n *net) getOrCreateLog(id thread.ID, identity thread.PubKey) (info thread.LogInfo, err error) {
+func (n *net) getOrCreateLog(id thread.ID, identity thread.PubKey, key crypto.Key) (info thread.LogInfo, err error) {
 	if identity == nil {
 		identity = thread.NewLibp2pPubKey(n.getPrivKey().GetPublic())
 	}
@@ -1682,7 +1687,7 @@ func (n *net) getOrCreateLog(id thread.ID, identity thread.PubKey) (info thread.
 		}
 		return n.store.GetLog(id, lid)
 	}
-	return n.createLog(id, nil, identity)
+	return n.createLog(id, key, identity)
 }
 
 // createExternalLogsIfNotExist creates an external logs if doesn't exists. The created
