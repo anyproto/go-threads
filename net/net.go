@@ -758,9 +758,6 @@ func (n *net) AddReplicator(
 	var unreplicatedLogs []thread.LogInfo
 	for _, lg := range info.Logs {
 		if !containsAddr(lg) {
-			if err = n.store.AddAddr(info.ID, lg.ID, addr, pstore.PermanentAddrTTL); err != nil {
-				return
-			}
 			lg.Addrs = append(lg.Addrs, addr)
 			unreplicatedLogs = append(unreplicatedLogs, lg)
 		}
@@ -780,11 +777,10 @@ func (n *net) AddReplicator(
 		// Send all unreplicated logs to the new replicator
 		for _, l := range unreplicatedLogs {
 			if err = n.server.pushLog(ctx, info.ID, l, pid, info.Key.Service(), nil); err != nil {
-				// Rollback this log only and then bail
-				l.Addrs = l.Addrs[:len(l.Addrs)-1]
-				if err := n.store.SetAddrs(info.ID, l.ID, l.Addrs, pstore.PermanentAddrTTL); err != nil {
-					log.Errorf("error rolling back log address change: %s", err)
-				}
+				return
+			}
+			if err = n.store.AddAddr(info.ID, l.ID, addr, pstore.PermanentAddrTTL); err != nil {
+				log.Errorf("error adding log to the store: %s", err)
 				return
 			}
 		}
