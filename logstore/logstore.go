@@ -246,10 +246,8 @@ func (ls *logstore) AddLog(id thread.ID, lg thread.LogInfo) error {
 	if err = ls.AddAddrs(id, lg.ID, lg.Addrs, pstore.PermanentAddrTTL); err != nil {
 		return err
 	}
-	if lg.Head.ID.Defined() {
-		if err = ls.SetHead(id, lg.ID, lg.Head); err != nil {
-			return err
-		}
+	if err = ls.SetHead(id, lg.ID, thread.HeadUndef); err != nil {
+		return err
 	}
 	// By definition 'owned' logs are also 'managed' logs.
 	if lg.Managed || lg.PrivKey != nil {
