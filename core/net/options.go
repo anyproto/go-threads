@@ -10,6 +10,7 @@ type NewThreadOptions struct {
 	ThreadKey thread.Key
 	LogKey    crypto.Key
 	Token     thread.Token
+	NoLog     bool
 }
 
 // NewThreadOption specifies new thread options.
@@ -39,10 +40,18 @@ func WithNewThreadToken(t thread.Token) NewThreadOption {
 	}
 }
 
+// WithoutLog provides the possibility to not add any log when creating/adding thread
+func WithoutLog() NewThreadOption {
+	return func(args *NewThreadOptions) {
+		args.NoLog = true
+	}
+}
+
 // ThreadOptions defines options for interacting with a thread.
 type ThreadOptions struct {
-	Token    thread.Token
-	APIToken Token
+	Token         thread.Token
+	LogPrivateKey crypto.PrivKey
+	APIToken      Token
 }
 
 // ThreadOption specifies thread options.
@@ -62,6 +71,13 @@ func WithThreadToken(t thread.Token) ThreadOption {
 func WithAPIToken(t Token) ThreadOption {
 	return func(args *ThreadOptions) {
 		args.APIToken = t
+	}
+}
+
+// WithLogPrivateKey is the private key used to write log records upon creation of a new record
+func WithLogPrivateKey(key crypto.PrivKey) ThreadOption {
+	return func(args *ThreadOptions) {
+		args.LogPrivateKey = key
 	}
 }
 
