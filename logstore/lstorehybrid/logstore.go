@@ -412,3 +412,32 @@ func (l *lstore) RestoreMigrations(dump core.DumpMigrationBook) error {
 	}
 	return l.inMem.RestoreMigrations(dump)
 }
+
+func (l *lstore) DumpKnownRecords() (core.DumpKnownRecordsBook, error) {
+	return l.inMem.DumpKnownRecords()
+}
+
+func (l *lstore) RestoreKnownRecords(knownRecords core.DumpKnownRecordsBook) error {
+	if err := l.persist.RestoreKnownRecords(knownRecords); err != nil {
+		return err
+	}
+	return l.inMem.RestoreKnownRecords(knownRecords)
+}
+
+func (l *lstore) RangeForCounter(threadId thread.ID, peerId peer.ID, counter int64) (core.RecordsRange, error) {
+	return l.inMem.RangeForCounter(threadId, peerId, counter)
+}
+
+func (l *lstore) AddRange(threadId thread.ID, peerId peer.ID, recordsRange core.RecordsRange) error {
+	if err := l.persist.AddRange(threadId, peerId, recordsRange); err != nil {
+		return err
+	}
+	return l.inMem.AddRange(threadId, peerId, recordsRange)
+}
+
+func (l *lstore) RemoveRange(threadId thread.ID, peerId peer.ID, recordsRange core.RecordsRange) error {
+	if err := l.persist.RemoveRange(threadId, peerId, recordsRange); err != nil {
+		return err
+	}
+	return l.inMem.RemoveRange(threadId, peerId, recordsRange)
+}

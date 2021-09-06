@@ -31,6 +31,9 @@ var ErrEmptyDump = errors.New("empty dump")
 // ErrEdgeUnavailable indicates failed concurrent edge computation.
 var ErrEdgeUnavailable = errors.New("edge unavailable")
 
+// ErrRangeNotFound indicates a failed range query
+var ErrRangeNotFound = errors.New("range not found")
+
 // Logstore stores log keys, addresses, heads and thread meta data.
 type Logstore interface {
 	Close() error
@@ -41,6 +44,7 @@ type Logstore interface {
 	HeadBook
 	SyncBook
 	MigrationBook
+	KnownRecordsBook
 
 	// Threads returns all threads in the store.
 	Threads() (thread.IDSlice, error)
@@ -149,6 +153,7 @@ type KeyBook interface {
 }
 
 type MigrationVersion string
+
 const (
 	MigrationVersion1 MigrationVersion = "v1"
 )
@@ -160,10 +165,10 @@ type MigrationBook interface {
 
 	// MigrationCompleted returns boolean value for a specific migration
 	MigrationCompleted(MigrationVersion) (bool, error)
-	
+
 	// DumpMigrations packs all stored migrations
 	DumpMigrations() (DumpMigrationBook, error)
-	
+
 	// RestoreMigrations gets all migration statuses from a DumpMigrationBook
 	RestoreMigrations(dump DumpMigrationBook) error
 }
@@ -248,7 +253,33 @@ type SyncBook interface {
 	RestoreSync(status DumpSyncBook) error
 }
 
+type KnownRecordsBook interface {
+	// DumpKnownRecords packs all stored record ranges into the tree.
+	DumpKnownRecords() (DumpKnownRecordsBook, error)
+
+	// RestoreKnownRecords restores range information from the dump.
+	RestoreKnownRecords(knownRecords DumpKnownRecordsBook) error
+
+	// RangeForCounter returns the start and end of range if the counter is known.
+	RangeForCounter(threadId thread.ID, peerId peer.ID, counter int64) (RecordsRange, error)
+
+	// AddRange adds the range to records book meaning that all the records in the range are known.
+	AddRange(threadId thread.ID, peerId peer.ID, recordsRange RecordsRange) error
+
+	// RemoveRange removes the range meaning that all records in the range are unknown.
+	RemoveRange(threadId thread.ID, peerId peer.ID, recordsRange RecordsRange) error
+}
+
 type (
+	RecordsRange struct {
+		Start thread.Head
+		End   thread.Head
+	}
+
+	DumpKnownRecordsBook struct {
+		Data map[thread.ID]map[peer.ID][]RecordsRange
+	}
+
 	DumpHeadBook struct {
 		Data map[thread.ID]map[peer.ID][]thread.Head
 	}
