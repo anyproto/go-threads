@@ -42,7 +42,8 @@ var (
 	errAlreadyDiscardedCommitedTxn = errors.New("can't commit discarded/committed txn")
 	errCantCreateExistingInstance  = errors.New("can't create already existing instance")
 
-	baseKey = dsPrefix.ChildString("collection")
+	baseKey        = dsPrefix.ChildString("collection")
+	ToBeDeletedKey = dsPrefix.ChildString("tobedeleted")
 
 	vmTimeout = time.Minute
 )

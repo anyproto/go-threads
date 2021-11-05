@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -308,6 +309,31 @@ type Info struct {
 	Name  string
 	Addrs []ma.Multiaddr
 	Key   thread.Key
+}
+
+func (d *DB) GetNonDeletedRecords() ([]string, error) {
+	txn, err := d.datastore.NewTransaction(true)
+	if err != nil {
+		return nil, err
+	}
+	defer txn.Discard()
+
+	res, err := txn.Query(query.Query{
+		Prefix:   ToBeDeletedKey.String(),
+		KeysOnly: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var deleted []string
+	for r := range res.Next() {
+		split := strings.Split(r.Key, "/")
+		if len(split) == 0 {
+			continue
+		}
+		deleted = append(deleted, split[len(split) - 1])
+	}
+	return deleted, nil
 }
 
 // GetDBInfo returns the addresses and key that can be used to join the DB thread.
