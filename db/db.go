@@ -319,7 +319,7 @@ func (d *DB) GetNonDeletedRecords() ([]string, error) {
 	defer txn.Discard()
 
 	res, err := txn.Query(query.Query{
-		Prefix:   ToBeDeletedKey.String(),
+		Prefix:   objectsToDeleteKey.String(),
 		KeysOnly: true,
 	})
 	if err != nil {
@@ -331,7 +331,7 @@ func (d *DB) GetNonDeletedRecords() ([]string, error) {
 		if len(split) == 0 {
 			continue
 		}
-		deleted = append(deleted, split[len(split) - 1])
+		deleted = append(deleted, split[len(split)-1])
 	}
 	return deleted, nil
 }

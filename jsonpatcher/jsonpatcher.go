@@ -52,7 +52,7 @@ type operation struct {
 
 type jsonPatcher struct{
 	// we save all keys which we fail to delete in this key
-	toBeDeletedKey ds.Key
+	objectsToDeleteKey ds.Key
 }
 
 var _ core.EventCodec = (*jsonPatcher)(nil)
@@ -63,9 +63,14 @@ func init() {
 	cbornode.RegisterCborType(operation{})
 }
 
+// NewWithKey returns a JSON-Patcher EventCodec with key
+func NewWithKey(objectsToDeleteKey ds.Key) core.EventCodec {
+	return &jsonPatcher{objectsToDeleteKey: objectsToDeleteKey}
+}
+
 // New returns a JSON-Patcher EventCodec
-func New(toBeDeletedKey ds.Key) core.EventCodec {
-	return &jsonPatcher{toBeDeletedKey: toBeDeletedKey}
+func New() core.EventCodec {
+	return &jsonPatcher{}
 }
 
 func (jp *jsonPatcher) Create(actions []core.Action) ([]core.Event, format.Node, error) {
@@ -178,10 +183,12 @@ func (jp *jsonPatcher) Reduce(
 			if err != nil {
 				log.With("instance id", e.InstanceID().String()).
 					Errorf("failed to delete record: %v", err)
-				err = txn.Put(jp.toBeDeletedKey.ChildString(e.InstanceID().String()), nil)
-				if err != nil {
-					log.With("instance id", e.InstanceID().String()).
-						Errorf("failed to put deleted key for record: %v", err)
+				if len(jp.objectsToDeleteKey.String()) > 0 {
+					err = txn.Put(jp.objectsToDeleteKey.ChildString(e.InstanceID().String()), nil)
+					if err != nil {
+						log.With("instance id", e.InstanceID().String()).
+							Errorf("failed to put deleted key for record: %v", err)
+					}
 				}
 				continue
 			}
