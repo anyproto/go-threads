@@ -42,8 +42,8 @@ var (
 	errAlreadyDiscardedCommitedTxn = errors.New("can't commit discarded/committed txn")
 	errCantCreateExistingInstance  = errors.New("can't create already existing instance")
 
-	baseKey        = dsPrefix.ChildString("collection")
-	ToBeDeletedKey = dsPrefix.ChildString("tobedeleted")
+	baseKey            = dsPrefix.ChildString("collection")
+	objectsToDeleteKey = dsPrefix.ChildString("objectstodelete")
 )
 
 const (
