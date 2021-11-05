@@ -50,7 +50,10 @@ type operation struct {
 	JSONPatch  []byte
 }
 
-type jsonPatcher struct{}
+type jsonPatcher struct{
+	// we save all keys which we fail to delete in this key
+	toBeDeletedKey ds.Key
+}
 
 var _ core.EventCodec = (*jsonPatcher)(nil)
 
@@ -61,8 +64,8 @@ func init() {
 }
 
 // New returns a JSON-Patcher EventCodec
-func New() core.EventCodec {
-	return &jsonPatcher{}
+func New(toBeDeletedKey ds.Key) core.EventCodec {
+	return &jsonPatcher{toBeDeletedKey: toBeDeletedKey}
 }
 
 func (jp *jsonPatcher) Create(actions []core.Action) ([]core.Event, format.Node, error) {
@@ -171,8 +174,16 @@ func (jp *jsonPatcher) Reduce(
 			log.Debug("\tsave operation applied")
 		case del:
 			value, err := txn.Get(key)
+			actions[i] = core.ReduceAction{Type: core.Delete, Collection: e.Collection(), InstanceID: e.InstanceID()}
 			if err != nil {
-				return nil, err
+				log.With("instance id", e.InstanceID().String()).
+					Errorf("failed to delete record: %v", err)
+				err = txn.Put(jp.toBeDeletedKey.ChildString(e.InstanceID().String()), nil)
+				if err != nil {
+					log.With("instance id", e.InstanceID().String()).
+						Errorf("failed to put deleted key for record: %v", err)
+				}
+				continue
 			}
 			if err := txn.Delete(key); err != nil {
 				return nil, err
@@ -180,7 +191,6 @@ func (jp *jsonPatcher) Reduce(
 			if err := indexFunc(e.Collection(), key, value, nil, txn); err != nil {
 				return nil, fmt.Errorf("error when removing index: %w", err)
 			}
-			actions[i] = core.ReduceAction{Type: core.Delete, Collection: e.Collection(), InstanceID: e.InstanceID()}
 			log.Debug("\tdelete operation applied")
 		default:
 			return nil, errUnknownOperation
