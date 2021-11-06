@@ -311,6 +311,22 @@ func (s *server) PushRecord(ctx context.Context, req *pb.PushRecordRequest) (*pb
 		defer func() { registry.Apply(pid, req.Body.ThreadID.ID, final) }()
 	}
 
+	if req.Counter != thread.CounterUndef {
+		h, err := s.net.currentHead(req.Body.ThreadID.ID, req.Body.LogID.ID)
+		if err != nil {
+			return nil, status.Error(codes.Internal, err.Error())
+		}
+		if h.Counter >= req.Counter {
+			final = threadStatusDownloadDone
+			return &pb.PushRecordReply{}, nil
+		}
+		// we should get records asynchronously if we can't easily append record
+		if h.Counter+1 != req.Counter {
+			s.net.queueGetRecords.Schedule(req.Body.LogID.ID, req.Body.ThreadID.ID, callPriorityHigh, s.net.updateRecordsFromPeer)
+			return nil, status.Error(codes.Internal, fmt.Sprintf("can't push record because counters are different, have %d, need %d", h.Counter, req.Counter))
+		}
+	}
+
 	if err = s.net.PutRecord(ctx, req.Body.ThreadID.ID, req.Body.LogID.ID, rec, req.Counter); err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
