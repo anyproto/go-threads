@@ -12,11 +12,11 @@ const (
 
 type Metrics interface {
 	AcceptRecord(tp RecordType, isNAT bool)
-	CreateRecord(beforeMs int, localEventBusMs int, pushRecordMs int)
+	CreateRecord(prepareMs int64, newRecordMs int64, localEventBusMs int64, pushRecordMs int64)
 }
 
 type NoOpMetrics struct{}
 
-func (n *NoOpMetrics) CreateRecord(beforeMs int, localEventBusMs int, pushRecordMs int) {}
+func (n *NoOpMetrics) CreateRecord(prepareMs int64, newRecordMs int64, localEventBusMs int64, pushRecordMs int64) {}
 
 func (n *NoOpMetrics) AcceptRecord(tp RecordType, isNat bool) {}
