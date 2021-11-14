@@ -746,7 +746,7 @@ func (n *net) AddReplicator(
 		return
 	}
 
-	containsAddr := func (l thread.LogInfo) bool {
+	containsAddr := func(l thread.LogInfo) bool {
 		for _, a := range l.Addrs {
 			if a.Equal(addr) {
 				return true
@@ -916,13 +916,17 @@ func (n *net) CreateRecord(
 
 	releaseIfNeeded()
 
+	startTime := time.Now()
 	log.Debugf("created record %s (thread=%s, log=%s)", tr.Value().Cid(), id, lg.ID)
 	if err = n.bus.SendWithTimeout(tr, notifyTimeout); err != nil {
 		return
 	}
+	busMs := time.Now().Sub(startTime).Milliseconds()
 	if err = n.server.pushRecord(ctx, id, lg.ID, tr.Value(), counter); err != nil {
 		return
 	}
+	pushMs := time.Now().Sub(startTime).Milliseconds() - busMs
+	n.metrics.CreateRecord(int(busMs), int(pushMs))
 	return tr, nil
 }
 
