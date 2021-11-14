@@ -893,7 +893,7 @@ func (n *net) CreateRecord(
 			ts.Release()
 		}
 	}
-
+	afterPrepareMs := time.Now()
 	lg, err := n.getOrCreateLog(id, identity, args.LogPrivateKey)
 	if err != nil {
 		return
@@ -916,18 +916,21 @@ func (n *net) CreateRecord(
 	}
 
 	releaseIfNeeded()
-
-	beforeMs := time.Now().Sub(startTime).Milliseconds()
+	afterNewRecordMs := time.Now()
 	log.Debugf("created record %s (thread=%s, log=%s)", tr.Value().Cid(), id, lg.ID)
 	if err = n.bus.SendWithTimeout(tr, notifyTimeout); err != nil {
 		return
 	}
-	busMs := time.Now().Sub(startTime).Milliseconds() - beforeMs
+	afterLocalBusMs := time.Now()
 	if err = n.server.pushRecord(ctx, id, lg.ID, tr.Value(), counter); err != nil {
 		return
 	}
-	pushMs := time.Now().Sub(startTime).Milliseconds() - busMs - beforeMs
-	n.metrics.CreateRecord(int(beforeMs), int(busMs), int(pushMs))
+	afterPushMs := time.Now()
+	n.metrics.CreateRecord(
+		afterPrepareMs.Sub(startTime).Milliseconds(),
+		afterNewRecordMs.Sub(afterPrepareMs).Milliseconds(),
+		afterLocalBusMs.Sub(afterNewRecordMs).Milliseconds(),
+		afterPushMs.Sub(afterLocalBusMs).Milliseconds())
 	return tr, nil
 }
 
