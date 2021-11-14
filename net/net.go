@@ -883,6 +883,7 @@ func (n *net) CreateRecord(
 	for _, opt := range opts {
 		opt(args)
 	}
+	startTime := time.Now()
 	identity, err := n.Validate(id, args.Token, false)
 	if err != nil {
 		return
@@ -933,17 +934,17 @@ func (n *net) CreateRecord(
 
 	releaseIfNeeded()
 
-	startTime := time.Now()
+	beforeMs := time.Now().Sub(startTime).Milliseconds()
 	log.Debugf("created record %s (thread=%s, log=%s)", tr.Value().Cid(), id, lg.ID)
 	if err = n.bus.SendWithTimeout(tr, notifyTimeout); err != nil {
 		return
 	}
-	busMs := time.Now().Sub(startTime).Milliseconds()
+	busMs := time.Now().Sub(startTime).Milliseconds() - beforeMs
 	if err = n.server.pushRecord(ctx, id, lg.ID, tr.Value(), counter); err != nil {
 		return
 	}
-	pushMs := time.Now().Sub(startTime).Milliseconds() - busMs
-	n.metrics.CreateRecord(int(busMs), int(pushMs))
+	pushMs := time.Now().Sub(startTime).Milliseconds() - busMs - beforeMs
+	n.metrics.CreateRecord(int(beforeMs), int(busMs), int(pushMs))
 	return tr, nil
 }
 
