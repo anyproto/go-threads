@@ -944,6 +944,7 @@ func (n *net) CreateRecord(
 	}
 	afterPushMs := time.Now()
 	n.metrics.CreateRecord(
+		id.String(),
 		afterPrepareMs.Sub(startTime).Milliseconds(),
 		afterNewRecordMs.Sub(afterPrepareMs).Milliseconds(),
 		afterLocalBusMs.Sub(afterNewRecordMs).Milliseconds(),
