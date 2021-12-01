@@ -524,6 +524,7 @@ func (s *server) exchangeEdges(ctx context.Context, pid peer.ID, tids []thread.I
 		// Note that previous versions also sent 0 (aka EmptyEdgeValue) values when the addresses
 		// were non-existent, so it shouldn't break backwards compatibility
 		if responseEdge != lstoreds.EmptyEdgeValue && responseEdge != addrsEdgeLocal {
+			s.net.metrics.DifferentLogEdges(addrsEdgeLocal, responseEdge, pid.String(), tid.String())
 			if s.net.queueGetLogs.Schedule(pid, tid, callPriorityLow, s.net.updateLogsFromPeer) {
 				log.With("thread", tid.String()).With("peer", pid.String()).Debugf("log information update for thread scheduled")
 			}
@@ -533,6 +534,7 @@ func (s *server) exchangeEdges(ctx context.Context, pid peer.ID, tids []thread.I
 		// We only update the records if we got non empty values and different hashes for heads
 		if responseEdge != lstoreds.EmptyEdgeValue {
 			if responseEdge != headsEdgeLocal {
+				s.net.metrics.DifferentHeadEdges(headsEdgeLocal, responseEdge, pid.String(), tid.String())
 				if s.net.queueGetRecords.Schedule(pid, tid, callPriorityLow, s.net.updateRecordsFromPeer) {
 					log.Debugf("record update for thread %s from %s scheduled", tid, pid)
 				}
