@@ -319,7 +319,11 @@ func (s *server) PushRecord(ctx context.Context, req *pb.PushRecordRequest) (*pb
 		// we should get records asynchronously if we can't easily append record
 		if h.Counter+1 != req.Counter {
 			s.net.queueGetRecords.Schedule(req.Body.LogID.ID, req.Body.ThreadID.ID, callPriorityHigh, s.net.updateRecordsFromPeer)
-			return nil, status.Error(codes.Internal, fmt.Sprintf("can't push record because counters are different, have %d, need %d", h.Counter, req.Counter))
+			errString := fmt.Sprintf("can't push record because counters are different, have %d, need %d", h.Counter, req.Counter-1)
+			log.With("peer", pid.String()).
+				With("log", req.Body.LogID.String()).
+				With("thread", req.Body.ThreadID.String()).Errorf(errString)
+			return nil, status.Error(codes.Internal, errString)
 		}
 	}
 
