@@ -746,7 +746,7 @@ func (n *net) AddReplicator(
 		return
 	}
 
-	containsAddr := func (l thread.LogInfo) bool {
+	containsAddr := func(l thread.LogInfo) bool {
 		for _, a := range l.Addrs {
 			if a.Equal(addr) {
 				return true
@@ -866,6 +866,7 @@ func (n *net) CreateRecord(
 	for _, opt := range opts {
 		opt(args)
 	}
+	startTime := time.Now()
 	identity, err := n.Validate(id, args.Token, false)
 	if err != nil {
 		return
@@ -892,7 +893,7 @@ func (n *net) CreateRecord(
 			ts.Release()
 		}
 	}
-
+	afterPrepareMs := time.Now()
 	lg, err := n.getOrCreateLog(id, identity, args.LogPrivateKey)
 	if err != nil {
 		return
@@ -915,14 +916,22 @@ func (n *net) CreateRecord(
 	}
 
 	releaseIfNeeded()
-
+	afterNewRecordMs := time.Now()
 	log.Debugf("created record %s (thread=%s, log=%s)", tr.Value().Cid(), id, lg.ID)
 	if err = n.bus.SendWithTimeout(tr, notifyTimeout); err != nil {
 		return
 	}
+	afterLocalBusMs := time.Now()
 	if err = n.server.pushRecord(ctx, id, lg.ID, tr.Value(), counter); err != nil {
 		return
 	}
+	afterPushMs := time.Now()
+	n.metrics.CreateRecord(
+		id.String(),
+		afterPrepareMs.Sub(startTime).Milliseconds(),
+		afterNewRecordMs.Sub(afterPrepareMs).Milliseconds(),
+		afterLocalBusMs.Sub(afterNewRecordMs).Milliseconds(),
+		afterPushMs.Sub(afterLocalBusMs).Milliseconds())
 	return tr, nil
 }
 
