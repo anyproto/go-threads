@@ -350,11 +350,13 @@ func (s *server) pushRecord(ctx context.Context, tid thread.ID, lid peer.ID, rec
 
 	// Push to each address
 	for _, p := range peers {
-		go func(pid peer.ID) {
-			if err := s.pushRecordToPeer(req, pid, tid, lid); err != nil {
-				log.With("thread", tid.String()).With("peer", pid.String()).With("log", lid.String()).Errorf("pushing record failed: %v", err)
+		// we use special sync queue to make sure that push records come in correct order
+		s.net.queuePushRecords.Schedule(p, tid, func(ctx context.Context, p peer.ID, t thread.ID) error {
+			if err := s.pushRecordToPeer(req, p, t, lid); err != nil {
+				return fmt.Errorf("pushing record to peer failed: %w", err)
 			}
-		}(p)
+			return nil
+		})
 	}
 
 	// Finally, publish to the thread's topic
