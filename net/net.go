@@ -107,9 +107,10 @@ type net struct {
 	connectors map[thread.ID]*app.Connector
 	connLock   sync.RWMutex
 
-	semaphores      *util.SemaphorePool
-	queueGetLogs    queue.CallQueue
-	queueGetRecords queue.CallQueue
+	semaphores       *util.SemaphorePool
+	queueGetLogs     queue.CallQueue
+	queueGetRecords  queue.CallQueue
+	queuePushRecords *queue.SyncQueue
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -170,18 +171,19 @@ func NewNetwork(
 	ctx, cancel := context.WithCancel(ctx)
 	n := &net{
 		conf:            conf,
-		DAGService:      ds,
-		host:            h,
-		bstore:          bstore,
-		store:           ls,
-		rpc:             grpc.NewServer(serverOptions...),
-		bus:             broadcast.NewBroadcaster(EventBusCapacity),
-		connectors:      make(map[thread.ID]*app.Connector),
-		ctx:             ctx,
-		cancel:          cancel,
-		semaphores:      util.NewSemaphorePool(1),
-		queueGetLogs:    queue.NewFFQueue(ctx, QueuePollInterval, conf.NetPullingInterval),
-		queueGetRecords: queue.NewFFQueue(ctx, QueuePollInterval, conf.NetPullingInterval),
+		DAGService:       ds,
+		host:             h,
+		bstore:           bstore,
+		store:            ls,
+		rpc:              grpc.NewServer(serverOptions...),
+		bus:              broadcast.NewBroadcaster(EventBusCapacity),
+		connectors:       make(map[thread.ID]*app.Connector),
+		ctx:              ctx,
+		cancel:           cancel,
+		semaphores:       util.NewSemaphorePool(1),
+		queueGetLogs:     queue.NewFFQueue(ctx, QueuePollInterval, PullInterval),
+		queueGetRecords:  queue.NewFFQueue(ctx, QueuePollInterval, PullInterval),
+		queuePushRecords: queue.NewSyncQueue(ctx),
 	}
 
 	go n.migrateHeadsIfNeeded(ctx, ls)
