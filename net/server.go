@@ -273,10 +273,6 @@ func (s *server) PushRecord(ctx context.Context, req *pb.PushRecordRequest) (*pb
 	if err != nil {
 		return nil, err
 	}
-	log.With("peer", pid.String()).
-		With("log", req.Body.LogID.String()).
-		With("thread", req.Body.ThreadID.String()).
-		Debugf("received push record request from peer")
 
 	// A log is required to accept new records
 	logpk, err := s.net.store.PubKey(req.Body.ThreadID.ID, req.Body.LogID.ID)
@@ -299,7 +295,13 @@ func (s *server) PushRecord(ctx context.Context, req *pb.PushRecordRequest) (*pb
 	if err = rec.Verify(logpk); err != nil {
 		return nil, status.Error(codes.Unauthenticated, err.Error())
 	}
-
+	log.With("peer", pid.String()).
+		With("rid", rec.String()).
+		With("rcnt", req.Counter).
+		With("log", req.Body.LogID.String()).
+		With("thread", req.Body.ThreadID.String()).
+		Debugf("received push record request from peer")
+	
 	var final = threadStatusDownloadFailed
 	if registry := s.net.tStat; registry != nil {
 		// receiving and successful processing records is equivalent to pulling from the peer
