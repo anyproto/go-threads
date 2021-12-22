@@ -40,7 +40,7 @@ func (s *SyncQueue) pollQueue(pid peer.ID, tid thread.ID, entry *peerEntry) {
 				continue
 			}
 			call := entry.queue[0]
-			entry.queue = entry.queue[1:len(entry.queue)]
+			entry.queue = entry.queue[1:]
 			entry.Unlock()
 			err := call(s.ctx, pid, tid)
 			if err != nil {
@@ -66,13 +66,16 @@ func (s *SyncQueue) Schedule(p peer.ID, t thread.ID, c PeerCall) {
 
 	if !exists {
 		s.Lock()
-		entry = &peerEntry{
-			queue:    make([]PeerCall, 0, 10),
-			notifier: make(chan struct{}, 1),
-			Mutex:    sync.Mutex{},
+		// checking to be sure that somebody didn't update this concurrently
+		if entry, exists = s.entryMap[p]; !exists {
+			entry = &peerEntry{
+				queue:    make([]PeerCall, 0, 10),
+				notifier: make(chan struct{}, 1),
+				Mutex:    sync.Mutex{},
+			}
+			s.entryMap[p] = entry
+			go s.pollQueue(p, t, entry)
 		}
-		s.entryMap[p] = entry
-		go s.pollQueue(p, t, entry)
 		s.Unlock()
 	}
 	entry.Lock()
