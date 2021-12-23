@@ -354,8 +354,8 @@ func (s *server) pushRecord(ctx context.Context, tid thread.ID, lid peer.ID, rec
 	// Push to each address
 	for _, p := range peers {
 		// we use special sync queue to make sure that push records come in correct order
-		s.net.queuePushRecords.Schedule(p, tid, func(ctx context.Context, p peer.ID, t thread.ID) error {
-			if err := s.pushRecordToPeer(req, p, t, lid); err != nil {
+		s.net.queuePushRecords.PushBack(p, tid, func(ctx context.Context, _ peer.ID, _ thread.ID) error {
+			if err := s.pushRecordToPeer(req, p, tid, lid); err != nil {
 				return fmt.Errorf("pushing record to peer failed: %w", err)
 			}
 			return nil
@@ -432,9 +432,16 @@ func (s *server) pushRecordToPeer(
 		if _, err = client.PushLog(lctx, lreq); err != nil {
 			return fmt.Errorf("pushing missing log: %w", err)
 		}
-
+		// We resend only the first record to not break the process, otherwise we rely on get records sent from peer
+		if req.Counter == 1 {
+			s.net.queuePushRecords.PushFront(pid, tid, func(ctx context.Context, _ peer.ID, _ thread.ID) error {
+				if err := s.pushRecordToPeer(req, pid, tid, lid); err != nil {
+					return fmt.Errorf("pushing record to peer failed: %w", err)
+				}
+				return nil
+			})
+		}
 		final = threadStatusUploadDone
-		// we do not need to do a repush here, because other side will initiate do the getRecords from their side after receiving the new log
 
 		return nil
 
