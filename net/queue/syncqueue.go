@@ -8,8 +8,13 @@ import (
 	"github.com/textileio/go-threads/core/thread"
 )
 
+type threadEntry struct {
+	call PeerCall
+	id   thread.ID
+}
+
 type peerEntry struct {
-	queue    []PeerCall
+	queue    []threadEntry
 	notifier chan struct{}
 	sync.Mutex
 }
@@ -28,7 +33,7 @@ func NewSyncQueue(ctx context.Context) *SyncQueue {
 	}
 }
 
-func (s *SyncQueue) pollQueue(pid peer.ID, tid thread.ID, entry *peerEntry) {
+func (s *SyncQueue) pollQueue(pid peer.ID, entry *peerEntry) {
 	for {
 		select {
 		case <-s.ctx.Done():
@@ -39,12 +44,12 @@ func (s *SyncQueue) pollQueue(pid peer.ID, tid thread.ID, entry *peerEntry) {
 				entry.Unlock()
 				continue
 			}
-			call := entry.queue[0]
+			te := entry.queue[0]
 			entry.queue = entry.queue[1:]
 			entry.Unlock()
-			err := call(s.ctx, pid, tid)
+			err := te.call(s.ctx, pid, te.id)
 			if err != nil {
-				log.With("thread", tid.String()).With("peer", pid.String()).
+				log.With("thread", te.id.String()).With("peer", pid.String()).
 					Errorf("action failed with: %v", err)
 			}
 			s.notify(entry.notifier)
@@ -59,27 +64,43 @@ func (s *SyncQueue) notify(notifier chan struct{}) {
 	}
 }
 
-func (s *SyncQueue) Schedule(p peer.ID, t thread.ID, c PeerCall) {
+func (s *SyncQueue) PushBack(pid peer.ID, tid thread.ID, c PeerCall) {
+	s.push(pid, tid, c, true)
+}
+
+func (s *SyncQueue) PushFront(pid peer.ID, tid thread.ID, c PeerCall) {
+	s.push(pid, tid, c, false)
+}
+
+func (s *SyncQueue) push(pid peer.ID, tid thread.ID, c PeerCall, isBack bool) {
 	s.RLock()
-	entry, exists := s.entryMap[p]
+	entry, exists := s.entryMap[pid]
 	s.RUnlock()
 
 	if !exists {
 		s.Lock()
 		// checking to be sure that somebody didn't update this concurrently
-		if entry, exists = s.entryMap[p]; !exists {
+		if entry, exists = s.entryMap[pid]; !exists {
 			entry = &peerEntry{
-				queue:    make([]PeerCall, 0, 10),
+				queue:    make([]threadEntry, 0, 10),
 				notifier: make(chan struct{}, 1),
 				Mutex:    sync.Mutex{},
 			}
-			s.entryMap[p] = entry
-			go s.pollQueue(p, t, entry)
+			s.entryMap[pid] = entry
+			go s.pollQueue(pid, entry)
 		}
 		s.Unlock()
 	}
 	entry.Lock()
 	defer entry.Unlock()
-	entry.queue = append(entry.queue, c)
+	te := threadEntry{
+		call: c,
+		id:   tid,
+	}
+	if isBack {
+		entry.queue = append(entry.queue, te)
+	} else {
+		entry.queue = append([]threadEntry{te}, entry.queue...)
+	}
 	s.notify(entry.notifier)
 }
