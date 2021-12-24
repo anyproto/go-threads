@@ -351,8 +351,8 @@ func (s *server) pushRecord(ctx context.Context, tid thread.ID, lid peer.ID, rec
 	// Push to each address
 	for _, p := range peers {
 		// we use special sync queue to make sure that push records come in correct order
-		s.net.queuePushRecords.PushBack(p, tid, func(ctx context.Context, _ peer.ID, _ thread.ID) error {
-			if err := s.pushRecordToPeer(req, p, tid, lid); err != nil {
+		s.net.queuePushRecords.PushBack(p, tid, func(ctx context.Context, queuePeer peer.ID, _ thread.ID) error {
+			if err := s.pushRecordToPeer(req, queuePeer, tid, lid); err != nil {
 				return fmt.Errorf("pushing record to peer failed: %w", err)
 			}
 			return nil
