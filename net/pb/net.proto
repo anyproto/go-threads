@@ -134,7 +134,7 @@ message PushRecordRequest {
     Header header = 1;
     // body is the message body.
     Body body = 2;
-    // position of the record
+    // deprecated, user the value inside body
     int64 counter = 3;
 
     message Body {
@@ -144,11 +144,45 @@ message PushRecordRequest {
         bytes logID = 2 [(gogoproto.customtype) = "ProtoPeerID"];
         // record is the actual record payload.
         Log.Record record = 3;
+        // position of the record
+        int64 counter = 4;
     }
 }
 
 // PushRecordReply is the response from a PushRecordRequest.
-message PushRecordReply {}
+message PushRecordReply {
+    PushRecordPayload payload = 1;
+
+    message PushRecordPayload {
+        // missingCounter is the firstCounter which is missing in the server, if the value is 0, then the request was successful
+        int64 missingCounter = 1;
+    }
+}
+
+// PushRecordRequest is used to push a several log records to a peer.
+message PushRecordsRequest {
+    Body body = 2;
+
+    message Body {
+        // threadID is the target thread's ID.
+        bytes threadID = 1 [(gogoproto.customtype) = "ProtoThreadID"];
+        // logID is the target log's ID.
+        bytes logID = 2 [(gogoproto.customtype) = "ProtoPeerID"];
+        // records is the array of records to be pushed
+        repeated Log.Record records = 3;
+        // counter is the counter of the first record in the array
+        int64 counter = 4;
+    }
+}
+
+message PushRecordsReply {
+    PushRecordsPayload payload = 1;
+
+    message PushRecordsPayload {
+        // missingCounter is the firstCounter which is missing in the server, if the value is 0, then the request was successful
+        int64 missingCounter = 1;
+    }
+}
 
 // ExchangeEdgesRequest is used to exchange address/heads edges with a peer.
 message ExchangeEdgesRequest {
@@ -199,6 +233,8 @@ service Service {
     rpc GetRecords(GetRecordsRequest) returns (GetRecordsReply) {}
     // PushRecord to a peer.
     rpc PushRecord(PushRecordRequest) returns (PushRecordReply) {}
+    // PushRecords to a peer.
+    rpc PushRecords(PushRecordsRequest) returns (PushRecordsReply) {}
     // ExchangeEdges with a peer.
     rpc ExchangeEdges(ExchangeEdgesRequest) returns (ExchangeEdgesReply) {}
 }
