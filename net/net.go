@@ -1526,6 +1526,46 @@ func (n *net) getLocalRecords(
 	return recs, nil
 }
 
+// getLocalRecordsAfterCounter is a more modern method that uses only counters
+func (n *net) getLocalRecordsAfterCounter(
+	ctx context.Context,
+	id thread.ID,
+	lid peer.ID,
+	counter int64) ([]core.Record, error) {
+	lg, err := n.store.GetLog(id, lid)
+	if err != nil {
+		return nil, err
+	}
+	localCounter := lg.Head.Counter
+	if localCounter <= counter {
+		return []core.Record{}, nil
+	}
+
+	sk, err := n.store.ServiceKey(id)
+	if err != nil {
+		return nil, err
+	}
+	if sk == nil {
+		return nil, fmt.Errorf("a service-key is required to get records")
+	}
+
+	var (
+		cursor = lg.Head.ID
+		recs   []core.Record
+	)
+
+	for localCounter != counter {
+		r, err := cbor.GetRecord(ctx, n, cursor, sk)
+		if err != nil {
+			return recs, err
+		}
+		recs = append([]core.Record{r}, recs...)
+		cursor = r.PrevID()
+		localCounter--
+	}
+	return recs, nil
+}
+
 // deleteRecord remove a record from the dag service.
 func (n *net) deleteRecord(ctx context.Context, rid cid.Cid, sk *sym.Key) (prev cid.Cid, err error) {
 	rec, err := cbor.GetRecord(ctx, n, rid, sk)
