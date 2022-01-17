@@ -450,7 +450,7 @@ func (s *server) pushRecordToPeer(
 	defer cancel()
 	res, err := client.PushRecord(rctx, req)
 	if err == nil {
-		if res.Payload.MissingCounter != thread.CounterUndef {
+		if res.GetPayload().GetMissingCounter() != thread.CounterUndef {
 			enqCtx, cancel := context.WithTimeout(context.Background(), PushTimeout)
 			defer cancel()
 			return s.enqueuePushRecordsRequestToPeer(enqCtx, pid, tid, lid, res.Payload.MissingCounter-1)
