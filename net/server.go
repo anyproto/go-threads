@@ -297,7 +297,7 @@ func (s *server) PushRecord(ctx context.Context, req *pb.PushRecordRequest) (*pb
 		return nil, status.Error(codes.Unauthenticated, err.Error())
 	}
 	counter := req.Body.Counter
-	// checking req.Counter for backward compatibility
+	// checking req.Counter for backwards compatibility
 	if counter == thread.CounterUndef {
 		counter = req.Counter
 	}
@@ -330,6 +330,7 @@ func (s *server) PushRecord(ctx context.Context, req *pb.PushRecordRequest) (*pb
 		}
 		if h.Counter+1 != counter {
 			if req.Body.Counter != thread.CounterUndef {
+				// we have a client using new format (it has counter in body) and thus it has extended protocol
 				return &pb.PushRecordReply{
 					Payload: &pb.PushRecordReply_PushRecordPayload{MissingCounter: h.Counter + 1},
 				}, nil
