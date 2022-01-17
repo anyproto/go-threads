@@ -321,7 +321,9 @@ func (s *server) PushRecord(ctx context.Context, req *pb.PushRecordRequest) (*pb
 		// already have everything
 		if h.Counter >= counter {
 			final = threadStatusDownloadDone
-			return &pb.PushRecordReply{}, nil
+			return &pb.PushRecordReply{
+				Payload: &pb.PushRecordReply_PushRecordPayload{MissingCounter: thread.CounterUndef},
+			}, nil
 		}
 		if h.Counter+1 != counter {
 			if req.Body.Counter != thread.CounterUndef {
@@ -350,7 +352,9 @@ func (s *server) PushRecord(ctx context.Context, req *pb.PushRecordRequest) (*pb
 
 	final = threadStatusDownloadDone
 
-	return &pb.PushRecordReply{}, nil
+	return &pb.PushRecordReply{
+		Payload: &pb.PushRecordReply_PushRecordPayload{MissingCounter: thread.CounterUndef},
+	}, nil
 }
 
 func (s *server) PushRecords(ctx context.Context, req *pb.PushRecordsRequest) (*pb.PushRecordsReply, error) {
@@ -406,7 +410,9 @@ func (s *server) PushRecords(ctx context.Context, req *pb.PushRecordsRequest) (*
 	// already have everything
 	if h.Counter >= req.Body.Counter+int64(len(records))-1 {
 		final = threadStatusDownloadDone
-		return &pb.PushRecordsReply{}, nil
+		return &pb.PushRecordsReply{
+			Payload: &pb.PushRecordsReply_PushRecordsPayload{MissingCounter: thread.CounterUndef},
+		}, nil
 	}
 	if h.Counter+1 != req.Body.Counter {
 		return &pb.PushRecordsReply{
@@ -424,7 +430,9 @@ func (s *server) PushRecords(ctx context.Context, req *pb.PushRecordsRequest) (*
 
 	final = threadStatusDownloadDone
 
-	return &pb.PushRecordsReply{}, nil
+	return &pb.PushRecordsReply{
+		Payload: &pb.PushRecordsReply_PushRecordsPayload{MissingCounter: thread.CounterUndef},
+	}, nil
 }
 
 // ExchangeEdges receives an exchange edges request.
