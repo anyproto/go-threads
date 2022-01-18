@@ -1551,7 +1551,7 @@ func (n *net) getLocalRecordsAfterCounter(
 
 	var (
 		cursor = lg.Head.ID
-		recs   []core.Record
+		recs   = make([]core.Record, 0, localCounter-counter)
 	)
 
 	for localCounter != counter {
