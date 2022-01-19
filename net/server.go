@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/gogo/status"
 	"github.com/ipfs/go-cid"
@@ -18,6 +19,7 @@ import (
 	core "github.com/textileio/go-threads/core/net"
 	"github.com/textileio/go-threads/core/thread"
 	"github.com/textileio/go-threads/logstore/lstoreds"
+	"github.com/textileio/go-threads/metrics"
 	pb "github.com/textileio/go-threads/net/pb"
 	"github.com/textileio/go-threads/util"
 	"google.golang.org/grpc"
@@ -174,17 +176,23 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 	}
 
 	// fast check if requested offsets are equal with thread heads
+	startTime := time.Now()
 	if changed, err := s.headsChanged(req); err != nil {
 		return nil, err
 	} else if !changed {
 		return pbrecs, nil
 	}
+	metrics.GetRecordsHeadsChanged.Observe(float64(time.Now().Sub(startTime).Milliseconds()))
 
 	reqd := make(map[peer.ID]*pb.GetRecordsRequest_Body_LogEntry)
 	for _, l := range req.Body.Logs {
 		reqd[l.LogID.ID] = l
 	}
+
+	startTime = time.Now()
 	info, err := s.net.store.GetThread(req.Body.ThreadID.ID)
+	metrics.GetRecordsGetThread.Observe(float64(time.Now().Sub(startTime).Milliseconds()))
+
 	if err != nil {
 		return nil, err
 	} else if len(info.Logs) == 0 {
