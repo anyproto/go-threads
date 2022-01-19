@@ -396,9 +396,9 @@ func (s *server) enqueuePushRecordsRequestToPeer(
 	pid peer.ID,
 	tid thread.ID,
 	lid peer.ID,
-	lowerBound int64,
+	minCounter int64,
 ) error {
-	recs, err := s.net.getLocalRecordsAfterCounter(ctx, tid, lid, lowerBound)
+	recs, err := s.net.getLocalRecordsAfterCounter(ctx, tid, lid, minCounter)
 	if err != nil {
 		return err
 	}
@@ -417,7 +417,7 @@ func (s *server) enqueuePushRecordsRequestToPeer(
 			ThreadID: &pb.ProtoThreadID{ID: tid},
 			LogID:    &pb.ProtoPeerID{ID: lid},
 			Records:  prs,
-			Counter:  lowerBound + 1,
+			Counter:  minCounter + 1,
 		},
 	}
 	s.net.queuePushRecords.ReplaceQueue(pid, tid, func(ctx context.Context, _ peer.ID, _ thread.ID) error {
