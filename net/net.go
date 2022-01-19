@@ -722,7 +722,7 @@ func (n *net) AddReplicator(
 		return
 	}
 
-	containsAddr := func (l thread.LogInfo) bool {
+	containsAddr := func(l thread.LogInfo) bool {
 		for _, a := range l.Addrs {
 			if a.Equal(addr) {
 				return true
@@ -1404,7 +1404,9 @@ func (n *net) getLocalRecords(
 	limit int,
 	counter int64,
 ) ([]core.Record, error) {
+	startTime := time.Now()
 	lg, err := n.store.GetLog(id, lid)
+	metrics.GetLocalRecordsGetLog.Observe(float64(time.Now().Sub(startTime).Milliseconds()))
 	if err != nil {
 		return nil, err
 	}
@@ -1434,6 +1436,7 @@ func (n *net) getLocalRecords(
 		cursor = lg.Head.ID
 		recs   []core.Record
 	)
+	startTime = time.Now()
 
 	for len(recs) < limit {
 		if !cursor.Defined() || cursor.String() == offset.String() {
@@ -1447,6 +1450,7 @@ func (n *net) getLocalRecords(
 		recs = append([]core.Record{r}, recs...)
 		cursor = r.PrevID()
 	}
+	metrics.GetLocalRecordsCborGetRecords.Observe(float64(time.Now().Sub(startTime).Milliseconds()))
 
 	return recs, nil
 }
