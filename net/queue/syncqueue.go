@@ -8,6 +8,14 @@ import (
 	"github.com/textileio/go-threads/core/thread"
 )
 
+type SyncQueueAction int
+
+const (
+	PushBack SyncQueueAction = iota
+	PushFront
+	ReplaceAll
+)
+
 type threadEntry struct {
 	call PeerCall
 	id   thread.ID
@@ -65,14 +73,18 @@ func (s *SyncQueue) notify(notifier chan struct{}) {
 }
 
 func (s *SyncQueue) PushBack(pid peer.ID, tid thread.ID, c PeerCall) {
-	s.push(pid, tid, c, true)
+	s.performAction(pid, tid, c, PushBack)
 }
 
 func (s *SyncQueue) PushFront(pid peer.ID, tid thread.ID, c PeerCall) {
-	s.push(pid, tid, c, false)
+	s.performAction(pid, tid, c, PushFront)
 }
 
-func (s *SyncQueue) push(pid peer.ID, tid thread.ID, c PeerCall, isBack bool) {
+func (s *SyncQueue) ReplaceQueue(pid peer.ID, tid thread.ID, c PeerCall) {
+	s.performAction(pid, tid, c, ReplaceAll)
+}
+
+func (s *SyncQueue) performAction(pid peer.ID, tid thread.ID, c PeerCall, action SyncQueueAction) {
 	s.RLock()
 	entry, exists := s.entryMap[pid]
 	s.RUnlock()
@@ -97,10 +109,15 @@ func (s *SyncQueue) push(pid peer.ID, tid thread.ID, c PeerCall, isBack bool) {
 		call: c,
 		id:   tid,
 	}
-	if isBack {
+
+	switch action {
+	case PushBack:
 		entry.queue = append(entry.queue, te)
-	} else {
+	case PushFront:
 		entry.queue = append([]threadEntry{te}, entry.queue...)
+	case ReplaceAll:
+		entry.queue = []threadEntry{te}
 	}
+
 	s.notify(entry.notifier)
 }

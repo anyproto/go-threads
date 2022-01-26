@@ -333,6 +333,7 @@ func (s *server) pushRecord(ctx context.Context, tid thread.ID, lid peer.ID, rec
 		ThreadID: &pb.ProtoThreadID{ID: tid},
 		LogID:    &pb.ProtoPeerID{ID: lid},
 		Record:   pbrec,
+		Counter:  counter,
 	}
 	// TODO: remove signing when enough users update
 	sig, key, err := s.signRequestBody(body)
@@ -369,6 +370,65 @@ func (s *server) pushRecord(ctx context.Context, tid thread.ID, lid peer.ID, rec
 	return nil
 }
 
+func (s *server) pushRecordsToPeer(
+	req *pb.PushRecordsRequest,
+	pid peer.ID,
+	tid thread.ID) error {
+	var final = threadStatusUploadFailed
+	if registry := s.net.tStat; registry != nil {
+		registry.Apply(pid, tid, threadStatusUploadStarted)
+		defer func() { registry.Apply(pid, tid, final) }()
+	}
+
+	client, err := s.dial(pid)
+	if err != nil {
+		return fmt.Errorf("dial failed: %w", err)
+	}
+	rctx, cancel := context.WithTimeout(context.Background(), PushTimeout)
+	defer cancel()
+
+	_, err = client.PushRecords(rctx, req)
+	return err
+}
+
+func (s *server) enqueuePushRecordsRequestToPeer(
+	ctx context.Context,
+	pid peer.ID,
+	tid thread.ID,
+	lid peer.ID,
+	minCounter int64,
+) error {
+	recs, err := s.net.getLocalRecordsAfterCounter(ctx, tid, lid, minCounter)
+	if err != nil {
+		return err
+	}
+	var prs = make([]*pb.Log_Record, 0, len(recs))
+	for _, r := range recs {
+		pr, err := cbor.RecordToProto(ctx, s.net, r)
+		if err != nil {
+			log.Errorf("constructing proto-record %s (thread %s, log %s): %v", r.Cid(), tid, lid, err)
+			break
+		}
+		prs = append(prs, pr)
+	}
+
+	replaceReq := &pb.PushRecordsRequest{
+		Body: &pb.PushRecordsRequest_Body{
+			ThreadID: &pb.ProtoThreadID{ID: tid},
+			LogID:    &pb.ProtoPeerID{ID: lid},
+			Records:  prs,
+			Counter:  minCounter + 1,
+		},
+	}
+	s.net.queuePushRecords.ReplaceQueue(pid, tid, func(ctx context.Context, _ peer.ID, _ thread.ID) error {
+		if err := s.pushRecordsToPeer(replaceReq, pid, tid); err != nil {
+			return fmt.Errorf("pushing records to peer failed: %w", err)
+		}
+		return nil
+	})
+	return nil
+}
+
 func (s *server) pushRecordToPeer(
 	req *pb.PushRecordRequest,
 	pid peer.ID,
@@ -385,12 +445,19 @@ func (s *server) pushRecordToPeer(
 	if err != nil {
 		return fmt.Errorf("dial failed: %w", err)
 	}
+
 	rctx, cancel := context.WithTimeout(context.Background(), PushTimeout)
 	defer cancel()
-	_, err = client.PushRecord(rctx, req)
+	res, err := client.PushRecord(rctx, req)
 	if err == nil {
-		final = threadStatusUploadDone
-		return nil
+		if res.GetPayload().GetMissingCounter() != thread.CounterUndef {
+			enqCtx, cancel := context.WithTimeout(context.Background(), PushTimeout)
+			defer cancel()
+			return s.enqueuePushRecordsRequestToPeer(enqCtx, pid, tid, lid, res.Payload.MissingCounter-1)
+		} else {
+			final = threadStatusUploadDone
+			return nil
+		}
 	}
 
 	switch status.Convert(err).Code() {
@@ -431,15 +498,14 @@ func (s *server) pushRecordToPeer(
 		if _, err = client.PushLog(lctx, lreq); err != nil {
 			return fmt.Errorf("pushing missing log: %w", err)
 		}
-		// We resend only the first record to not break the process, otherwise we rely on get records sent from peer
-		if req.Counter == 1 {
-			s.net.queuePushRecords.PushFront(pid, tid, func(ctx context.Context, _ peer.ID, _ thread.ID) error {
-				if err := s.pushRecordToPeer(req, pid, tid, lid); err != nil {
-					return fmt.Errorf("pushing record to peer failed: %w", err)
-				}
-				return nil
-			})
+
+		enqCtx, cancel := context.WithTimeout(context.Background(), PushTimeout)
+		defer cancel()
+		err = s.enqueuePushRecordsRequestToPeer(enqCtx, pid, tid, lid, thread.CounterUndef)
+		if err != nil {
+			return err
 		}
+
 		final = threadStatusUploadDone
 
 		return nil
