@@ -30,7 +30,6 @@ import (
 	lstore "github.com/textileio/go-threads/core/logstore"
 	core "github.com/textileio/go-threads/core/net"
 	"github.com/textileio/go-threads/core/thread"
-	sym "github.com/textileio/go-threads/crypto/symmetric"
 	"github.com/textileio/go-threads/metrics"
 	pb "github.com/textileio/go-threads/net/pb"
 	"github.com/textileio/go-threads/net/queue"
@@ -166,8 +165,8 @@ type Config struct {
 	NoExchangeEdgesMigration  bool
 	PubSub                    bool
 	Debug                     bool
-	SyncBook     lstore.SyncBook
-	SyncTracking bool
+	SyncBook                  lstore.SyncBook
+	SyncTracking              bool
 }
 
 func (c Config) Validate() error {
@@ -236,8 +235,8 @@ func NewNetwork(
 	}
 
 	if conf.SyncTracking {
-		t.connTrack = NewConnTracker(h.Network())
-		if t.tStat, err = NewThreadStatusRegistry(conf.SyncBook, t.connTrack.Track); err != nil {
+		n.connTrack = NewConnTracker(h.Network())
+		if n.tStat, err = NewThreadStatusRegistry(conf.SyncBook, n.connTrack.Track); err != nil {
 			return nil, fmt.Errorf("thread status registry init failed: %w", err)
 		}
 	}

@@ -24,6 +24,7 @@ import (
 	"github.com/textileio/go-threads/logstore/lstoreds"
 	"github.com/textileio/go-threads/metrics"
 	pb "github.com/textileio/go-threads/net/pb"
+	netutil "github.com/textileio/go-threads/net/util"
 	"github.com/textileio/go-threads/util"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -446,6 +447,7 @@ func (s *server) ExchangeEdges(ctx context.Context, req *pb.ExchangeEdgesRequest
 		return nil, err
 	}
 	log.With("peer", pid.String()).Debugf("received exchange edges request from peer")
+	startTime := time.Now()
 
 	var reply pb.ExchangeEdgesReply
 	for _, entry := range req.Body.Threads {
@@ -479,7 +481,11 @@ func (s *server) ExchangeEdges(ctx context.Context, req *pb.ExchangeEdgesRequest
 			// need to get new records only if we have non empty heads on remote and the hashes are different
 			if headsEdgeRemote != lstoreds.EmptyEdgeValue {
 				if headsEdgeLocal != headsEdgeRemote {
-					if s.net.queueGetRecords.Schedule(pid, tid, callPriorityLow, s.net.updateRecordsFromPeer) {
+					updateRecordsFromPeer := func(ctx context.Context, p peer.ID, t thread.ID) error {
+						netutil.MetricObserveSeconds(metrics.UpdateRecordsDelayAfterExchangeEdges, startTime)
+						return s.net.updateRecordsFromPeer(ctx, p, t)
+					}
+					if s.net.queueGetRecords.Schedule(pid, tid, callPriorityLow, updateRecordsFromPeer) {
 						log.With("peer", pid.String()).With("thread", tid.String()).Debugf("record update for thread %s from %s scheduled", tid, pid)
 					}
 				} else if registry := s.net.tStat; registry != nil {
