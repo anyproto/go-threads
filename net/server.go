@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/gogo/status"
@@ -171,17 +172,22 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 	}
 
 	// fast check if requested offsets are equal with thread heads
+	started := time.Now()
 	if changed, err := s.headsChanged(req); err != nil {
 		return nil, err
 	} else if !changed {
 		return pbrecs, nil
 	}
+	s.net.metrics.GetRecordsHeadsChangedDuration(time.Since(started))
 
 	reqd := make(map[peer.ID]*pb.GetRecordsRequest_Body_LogEntry)
 	for _, l := range req.Body.Logs {
 		reqd[l.LogID.ID] = l
 	}
+	started = time.Now()
 	info, err := s.net.store.GetThread(req.Body.ThreadID.ID)
+	s.net.metrics.GetRecordsGetThreadDuration(time.Since(started))
+
 	if err != nil {
 		return nil, err
 	} else if len(info.Logs) == 0 {
@@ -192,6 +198,7 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 	var (
 		logRecordLimit = MaxPullLimit / len(info.Logs)
 		failures       int32
+		totalRecords   int
 		mx             sync.Mutex
 		wg             sync.WaitGroup
 	)
@@ -249,6 +256,8 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 				Records: prs,
 				Log:     pblg,
 			})
+			s.net.metrics.NumberOfRecordsSentForLog(len(prs))
+			totalRecords = len(prs)
 			mx.Unlock()
 
 			log.With("thread", tid.String()).With("peer", pid.String()).With("offset", off.String()).With("head", head).Debugf("sending %d records in log to remote peer", len(recs))
@@ -257,6 +266,7 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 
 	wg.Wait()
 
+	s.net.metrics.NumberOfRecordsSentTotal(totalRecords)
 	if registry := s.net.tStat; registry != nil && failures == 0 {
 		// if requester was able to receive our latest records its
 		// equivalent to successful push in the reverse direction
@@ -443,6 +453,7 @@ func (s *server) ExchangeEdges(ctx context.Context, req *pb.ExchangeEdgesRequest
 		return nil, err
 	}
 	log.With("peer", pid.String()).Debugf("received exchange edges request from peer")
+	started := time.Now()
 
 	var reply pb.ExchangeEdgesReply
 	for _, entry := range req.Body.Threads {
@@ -476,7 +487,11 @@ func (s *server) ExchangeEdges(ctx context.Context, req *pb.ExchangeEdgesRequest
 			// need to get new records only if we have non empty heads on remote and the hashes are different
 			if headsEdgeRemote != lstoreds.EmptyEdgeValue {
 				if headsEdgeLocal != headsEdgeRemote {
-					if s.net.queueGetRecords.Schedule(pid, tid, callPriorityLow, s.net.updateRecordsFromPeer) {
+					updateRecordsFromPeer := func(ctx context.Context, p peer.ID, t thread.ID) error {
+						s.net.metrics.UpdateRecordsDelayAfterExchangeEdges(time.Since(started))
+						return s.net.updateRecordsFromPeer(ctx, p, t)
+					}
+					if s.net.queueGetRecords.Schedule(pid, tid, callPriorityLow, updateRecordsFromPeer) {
 						log.With("peer", pid.String()).With("thread", tid.String()).Debugf("record update for thread %s from %s scheduled", tid, pid)
 					}
 				} else if registry := s.net.tStat; registry != nil {

@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ipfs/go-cid"
 	bs "github.com/ipfs/go-ipfs-blockstore"
 	format "github.com/ipfs/go-ipld-format"
 	logging "github.com/ipfs/go-log/v2"
@@ -118,16 +117,19 @@ type net struct {
 
 // Config is used to specify thread instance options.
 type Config struct {
-	NetPullingLimit           uint
-	NetPullingStartAfter      time.Duration
-	NetPullingInitialInterval time.Duration
-	NetPullingInterval        time.Duration
-	NoNetPulling              bool
-	NoExchangeEdgesMigration  bool
-	PubSub                    bool
-	Debug                     bool
-	SyncBook     lstore.SyncBook
-	SyncTracking bool
+	NetPullingLimit               uint
+	NetPullingStartAfter          time.Duration
+	NetPullingInitialInterval     time.Duration
+	NetPullingInterval            time.Duration
+	NoNetPulling                  bool
+	NoExchangeEdgesMigration      bool
+	PubSub                        bool
+	Debug                         bool
+	SyncBook                      lstore.SyncBook
+	SyncTracking                  bool
+	DisableReachabilityMonitoring bool
+	SetHeadsMigrated              bool
+	Metrics                       metrics.Metrics
 }
 
 func (c Config) Validate() error {
@@ -168,9 +170,14 @@ func NewNetwork(
 		return nil, err
 	}
 
+	m := (metrics.Metrics)(&metrics.NoOpMetrics{})
+	if conf.Metrics != nil {
+		m = conf.Metrics
+	}
+
 	ctx, cancel := context.WithCancel(ctx)
 	n := &net{
-		conf:            conf,
+		conf:             conf,
 		DAGService:       ds,
 		host:             h,
 		bstore:           bstore,
@@ -180,10 +187,17 @@ func NewNetwork(
 		connectors:       make(map[thread.ID]*app.Connector),
 		ctx:              ctx,
 		cancel:           cancel,
-		semaphores:       util.NewSemaphorePool(1),
+		metrics:          m,
+		semaphores:       util.NewSemaphorePool(1, m),
 		queueGetLogs:     queue.NewFFQueue(ctx, QueuePollInterval, PullInterval),
 		queueGetRecords:  queue.NewFFQueue(ctx, QueuePollInterval, PullInterval),
 		queuePushRecords: queue.NewSyncQueue(ctx),
+	}
+	if conf.SetHeadsMigrated {
+		err = t.store.SetMigrationCompleted(lstore.MigrationVersion1)
+		if err != nil {
+			return nil, fmt.Errorf("failed set migration to version 1 state: %w", err)
+		}
 	}
 
 	go n.migrateHeadsIfNeeded(ctx, ls)
@@ -212,18 +226,11 @@ func NewNetwork(
 	}()
 
 	n.setMetrics(ctx)
-	go n.monitorReachability(ctx)
+	if !conf.DisableReachabilityMonitoring {
+		go n.monitorReachability(ctx)
+	}
 	go n.startPulling()
 	return n, nil
-}
-
-func (n *net) setMetrics(ctx context.Context) {
-	m, ok := ctx.Value(metrics.ContextKey{}).(metrics.Metrics)
-	if !ok {
-		n.metrics = &metrics.NoOpMetrics{}
-		return
-	}
-	n.metrics = m
 }
 
 func (n *net) monitorReachability(ctx context.Context) {
@@ -1479,10 +1486,13 @@ func (n *net) getLocalRecords(
 	limit int,
 	counter int64,
 ) ([]core.Record, error) {
+	started := time.Now()
 	lg, err := n.store.GetLog(id, lid)
 	if err != nil {
 		return nil, err
 	}
+	n.metrics.GetLocalRecordsGetLogDuration(time.Since(started))
+
 	// reverting to old logic if the new one is not supported
 	if counter == thread.CounterUndef && offset != cid.Undef || lg.Head.IsFromBrokenLog() {
 		if offset.Defined() {
@@ -1510,6 +1520,7 @@ func (n *net) getLocalRecords(
 		recs   []core.Record
 	)
 
+	started = time.Now()
 	for len(recs) < limit {
 		if !cursor.Defined() || cursor.String() == offset.String() {
 			break
@@ -1522,6 +1533,7 @@ func (n *net) getLocalRecords(
 		recs = append([]core.Record{r}, recs...)
 		cursor = r.PrevID()
 	}
+	n.metrics.GetLocalRecordsCborGetRecordsDuration(time.Since(started))
 
 	return recs, nil
 }
