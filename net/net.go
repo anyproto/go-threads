@@ -126,10 +126,13 @@ type net struct {
 
 // Config is used to specify thread instance options.
 type Config struct {
-	Debug        bool
-	PubSub       bool
-	SyncBook     lstore.SyncBook
-	SyncTracking bool
+	Debug                         bool
+	PubSub                        bool
+	SyncBook                      lstore.SyncBook
+	SyncTracking                  bool
+	DisableReachabilityMonitoring bool
+	SetHeadsMigrated              bool
+	Metrics                       metrics.Metrics
 }
 
 // NewNetwork creates an instance of net from the given host and thread store.
@@ -153,6 +156,11 @@ func NewNetwork(
 		}
 	}
 
+	m := (metrics.Metrics)(&metrics.NoOpMetrics{})
+	if conf.Metrics != nil {
+		m = conf.Metrics
+	}
+
 	ctx, cancel := context.WithCancel(ctx)
 	t := &net{
 		DAGService:       ds,
@@ -164,10 +172,17 @@ func NewNetwork(
 		connectors:       make(map[thread.ID]*app.Connector),
 		ctx:              ctx,
 		cancel:           cancel,
-		semaphores:       util.NewSemaphorePool(1),
+		metrics:          m,
+		semaphores:       util.NewSemaphorePool(1, m),
 		queueGetLogs:     queue.NewFFQueue(ctx, QueuePollInterval, PullInterval),
 		queueGetRecords:  queue.NewFFQueue(ctx, QueuePollInterval, PullInterval),
 		queuePushRecords: queue.NewSyncQueue(ctx),
+	}
+	if conf.SetHeadsMigrated {
+		err = t.store.SetMigrationCompleted(lstore.MigrationVersion1)
+		if err != nil {
+			return nil, fmt.Errorf("failed set migration to version 1 state: %w", err)
+		}
 	}
 
 	go t.migrateHeadsIfNeeded(ctx)
@@ -195,19 +210,11 @@ func NewNetwork(
 		}
 	}()
 
-	t.setMetrics(ctx)
-	go t.monitorReachability(ctx)
+	if !conf.DisableReachabilityMonitoring {
+		go t.monitorReachability(ctx)
+	}
 	go t.startPulling()
 	return t, nil
-}
-
-func (n *net) setMetrics(ctx context.Context) {
-	m, ok := ctx.Value(metrics.ContextKey{}).(metrics.Metrics)
-	if !ok {
-		n.metrics = &metrics.NoOpMetrics{}
-		return
-	}
-	n.metrics = m
 }
 
 func (n *net) monitorReachability(ctx context.Context) {
@@ -1432,10 +1439,13 @@ func (n *net) getLocalRecords(
 	limit int,
 	counter int64,
 ) ([]core.Record, error) {
+	started := time.Now()
 	lg, err := n.store.GetLog(id, lid)
 	if err != nil {
 		return nil, err
 	}
+	n.metrics.GetLocalRecordsGetLogDuration(time.Since(started))
+
 	// reverting to old logic if the new one is not supported
 	if counter == thread.CounterUndef && offset != cid.Undef || lg.Head.IsFromBrokenLog() {
 		if offset.Defined() {
@@ -1463,6 +1473,7 @@ func (n *net) getLocalRecords(
 		recs   []core.Record
 	)
 
+	started = time.Now()
 	for len(recs) < limit {
 		if !cursor.Defined() || cursor.String() == offset.String() {
 			break
@@ -1475,6 +1486,7 @@ func (n *net) getLocalRecords(
 		recs = append([]core.Record{r}, recs...)
 		cursor = r.PrevID()
 	}
+	n.metrics.GetLocalRecordsCborGetRecordsDuration(time.Since(started))
 
 	return recs, nil
 }
