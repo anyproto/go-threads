@@ -24,7 +24,6 @@ type Metrics interface {
 	GetLocalRecordsGetLogDuration(duration time.Duration)
 	GetLocalRecordsCborGetRecordsDuration(duration time.Duration)
 
-	UpdateRecordsDuration(duration time.Duration)
 	SemaphoreAcquireDuration(duration time.Duration)
 	SemaphoreHoldDuration(duration time.Duration)
 
@@ -50,8 +49,6 @@ func (n *NoOpMetrics) GetRecordsHeadsChangedDuration(duration time.Duration) {}
 func (n *NoOpMetrics) GetLocalRecordsGetLogDuration(duration time.Duration) {}
 
 func (n *NoOpMetrics) GetLocalRecordsCborGetRecordsDuration(duration time.Duration) {}
-
-func (n *NoOpMetrics) UpdateRecordsDuration(duration time.Duration) {}
 
 func (n *NoOpMetrics) SemaphoreAcquireDuration(duration time.Duration) {}
 
