@@ -8,7 +8,7 @@ import (
 )
 
 func newDefaultEventCodec() core.EventCodec {
-	return jsonpatcher.New()
+	return jsonpatcher.NewWithKey(objectsToDeleteKey)
 }
 
 // NewOptions defines options for creating a new db.

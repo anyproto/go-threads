@@ -41,3 +41,19 @@ message HeadBookRecord {
 		int64 counter = 2;
 	}
 }
+
+message SyncBookRecord {
+	// The peer ID.
+	bytes peerID = 1 [(gogoproto.customtype) = "ProtoPeerID"];
+
+	// The sync information for threads.
+	repeated SyncEntry entries = 2;
+
+	// SyncEntry represents sync information for some thread hash.
+	message SyncEntry {
+		uint64 tHash = 1;
+		uint32 upStatus = 2;
+		uint32 downStatus = 3;
+		int64 lastPull = 4;
+	}
+}

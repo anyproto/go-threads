@@ -8,6 +8,7 @@ import (
 	"github.com/libp2p/go-libp2p-core/crypto"
 	"github.com/libp2p/go-libp2p-core/peer"
 	ma "github.com/multiformats/go-multiaddr"
+	"github.com/textileio/go-threads/core/net"
 	"github.com/textileio/go-threads/core/thread"
 	sym "github.com/textileio/go-threads/crypto/symmetric"
 )
@@ -38,6 +39,8 @@ type Logstore interface {
 	KeyBook
 	AddrBook
 	HeadBook
+	SyncBook
+	MigrationBook
 
 	// Threads returns all threads in the store.
 	Threads() (thread.IDSlice, error)
@@ -145,6 +148,26 @@ type KeyBook interface {
 	RestoreKeys(book DumpKeyBook) error
 }
 
+type MigrationVersion string
+const (
+	MigrationVersion1 MigrationVersion = "v1"
+)
+
+// MigrationBook stores completed migrations of different versions
+type MigrationBook interface {
+	// SetMigrationCompleted stores true boolean value for a specific migration
+	SetMigrationCompleted(MigrationVersion) error
+
+	// MigrationCompleted returns boolean value for a specific migration
+	MigrationCompleted(MigrationVersion) (bool, error)
+	
+	// DumpMigrations packs all stored migrations
+	DumpMigrations() (DumpMigrationBook, error)
+	
+	// RestoreMigrations gets all migration statuses from a DumpMigrationBook
+	RestoreMigrations(dump DumpMigrationBook) error
+}
+
 // AddrBook stores log addresses.
 type AddrBook interface {
 	// AddAddr adds an address under a log with a given TTL.
@@ -217,9 +240,21 @@ type HeadBook interface {
 	RestoreHeads(DumpHeadBook) error
 }
 
+type SyncBook interface {
+	// DumpSync packs all stored thread sync information.
+	DumpSync() (DumpSyncBook, error)
+
+	// RestoreSync restores thread sync information from the dump.
+	RestoreSync(status DumpSyncBook) error
+}
+
 type (
 	DumpHeadBook struct {
 		Data map[thread.ID]map[peer.ID][]thread.Head
+	}
+
+	DumpMigrationBook struct {
+		Migrations map[string]struct{}
 	}
 
 	ExpiredAddress struct {
@@ -252,5 +287,9 @@ type (
 			String map[MetadataKey]string
 			Bytes  map[MetadataKey][]byte
 		}
+	}
+
+	DumpSyncBook struct {
+		Data map[peer.ID]map[uint64]net.SyncStatus
 	}
 )

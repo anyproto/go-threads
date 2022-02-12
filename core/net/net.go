@@ -16,6 +16,7 @@ import (
 // Net wraps API with a DAGService and libp2p host.
 type Net interface {
 	API
+	SyncInfo
 
 	// DAGService provides a DAG API to the network.
 	format.DAGService

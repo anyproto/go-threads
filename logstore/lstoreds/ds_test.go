@@ -78,6 +78,15 @@ func TestDatastoreMetadataBook(t *testing.T) {
 	}
 }
 
+func TestDatastoreSyncBook(t *testing.T) {
+	for name, dsFactory := range dstores {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			pt.SyncBookTest(t, syncBookFactory(t, dsFactory))
+		})
+	}
+}
+
 func logstoreFactory(tb testing.TB, storeFactory datastoreFactory, opts Options) pt.LogstoreFactory {
 	return func() (core.Logstore, func()) {
 		store, closeFunc := storeFactory(tb)
@@ -130,6 +139,17 @@ func headBookFactory(tb testing.TB, storeFactory datastoreFactory) pt.HeadBookFa
 			closeFunc()
 		}
 		return hb, closer
+	}
+}
+
+func syncBookFactory(tb testing.TB, storeFactory datastoreFactory) pt.SyncBookFactory {
+	return func() (core.SyncBook, func()) {
+		store, closeFunc := storeFactory(tb)
+		sb := NewSyncBook(store.(ds.TxnDatastore))
+		closer := func() {
+			closeFunc()
+		}
+		return sb, closer
 	}
 }
 

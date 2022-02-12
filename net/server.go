@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/gogo/status"
 	"github.com/ipfs/go-cid"
@@ -14,8 +16,10 @@ import (
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/textileio/go-threads/cbor"
 	lstore "github.com/textileio/go-threads/core/logstore"
+	core "github.com/textileio/go-threads/core/net"
 	"github.com/textileio/go-threads/core/thread"
 	"github.com/textileio/go-threads/logstore/lstoreds"
+	"github.com/textileio/go-threads/metrics"
 	pb "github.com/textileio/go-threads/net/pb"
 	"github.com/textileio/go-threads/util"
 	"google.golang.org/grpc"
@@ -80,12 +84,13 @@ func newServer(n *net, enablePubSub bool, opts ...grpc.DialOption) (*server, err
 
 // pubsubHandler receives records over pubsub.
 func (s *server) pubsubHandler(ctx context.Context, req *pb.PushRecordRequest) {
+	ctx = context.WithValue(ctx, recordPutOriginKey{}, metrics.RecordTypePubsub)
 	if _, err := s.PushRecord(ctx, req); err != nil {
 		// This error will be "log not found" if the record sent over pubsub
 		// beat the log, which has to be sent directly via the normal API.
 		// In this case, the record will arrive directly after the log via
 		// the normal API.
-		log.Debugf("error handling pubsub record: %s", err)
+		log.With("thread", req.Body.ThreadID.ID.String()).Errorf("error handling pubsub record: %s", err)
 	}
 }
 
@@ -95,7 +100,7 @@ func (s *server) GetLogs(ctx context.Context, req *pb.GetLogsRequest) (*pb.GetLo
 	if err != nil {
 		return nil, err
 	}
-	log.Debugf("received get logs request from %s", pid)
+	log.With("thread", req.Body.ThreadID.ID.String()).With("peer", pid.String()).Debugf("received get logs request from peer")
 
 	pblgs := &pb.GetLogsReply{}
 	if err := s.checkServiceKey(req.Body.ThreadID.ID, req.Body.ServiceKey); err != nil {
@@ -112,7 +117,7 @@ func (s *server) GetLogs(ctx context.Context, req *pb.GetLogsRequest) (*pb.GetLo
 		pblgs.Logs[i] = logToProto(l)
 	}
 
-	log.Debugf("sending %d logs to %s", len(info.Logs), pid)
+	log.With("thread", req.Body.ThreadID.ID.String()).With("peer", pid.String()).Debugf("sending %d logs to peer", len(info.Logs))
 
 	return pblgs, nil
 }
@@ -124,7 +129,7 @@ func (s *server) PushLog(ctx context.Context, req *pb.PushLogRequest) (*pb.PushL
 	if err != nil {
 		return nil, err
 	}
-	log.Debugf("received push log request from %s", pid)
+	log.With("thread", req.Body.ThreadID.ID.String()).With("peer", pid.String()).Debugf("received push log request from peer")
 
 	// Pick up missing keys
 	info, err := s.net.store.GetThread(req.Body.ThreadID.ID)
@@ -153,7 +158,7 @@ func (s *server) PushLog(ctx context.Context, req *pb.PushLogRequest) (*pb.PushL
 	}
 
 	if s.net.queueGetRecords.Schedule(pid, req.Body.ThreadID.ID, callPriorityLow, s.net.updateRecordsFromPeer) {
-		log.Debugf("record update for thread %s from %s scheduled", req.Body.ThreadID.ID, pid)
+		log.With("thread", req.Body.ThreadID.ID.String()).With("peer", pid.String()).Debugf("record update for thread from peer scheduled")
 	}
 	return &pb.PushLogReply{}, nil
 }
@@ -164,7 +169,7 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 	if err != nil {
 		return nil, err
 	}
-	log.Debugf("received get records request from %s", pid)
+	log.With("thread", req.Body.ThreadID.ID.String()).With("peer", pid.String()).Debugf("received get records request from peer")
 
 	var pbrecs = &pb.GetRecordsReply{}
 	if err := s.checkServiceKey(req.Body.ThreadID.ID, req.Body.ServiceKey); err != nil {
@@ -172,17 +177,22 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 	}
 
 	// fast check if requested offsets are equal with thread heads
+	started := time.Now()
 	if changed, err := s.headsChanged(req); err != nil {
 		return nil, err
 	} else if !changed {
 		return pbrecs, nil
 	}
+	s.net.metrics.GetRecordsHeadsChangedDuration(time.Since(started))
 
 	reqd := make(map[peer.ID]*pb.GetRecordsRequest_Body_LogEntry)
 	for _, l := range req.Body.Logs {
 		reqd[l.LogID.ID] = l
 	}
+	started = time.Now()
 	info, err := s.net.store.GetThread(req.Body.ThreadID.ID)
+	s.net.metrics.GetRecordsGetThreadDuration(time.Since(started))
+
 	if err != nil {
 		return nil, err
 	} else if len(info.Logs) == 0 {
@@ -190,10 +200,16 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 	}
 	pbrecs.Logs = make([]*pb.GetRecordsReply_LogEntry, 0, len(info.Logs))
 
-	var (
+	logRecordLimit := MaxPullLimit
+	if !s.net.useMaxPullLimit {
 		logRecordLimit = MaxPullLimit / len(info.Logs)
-		mx             sync.Mutex
-		wg             sync.WaitGroup
+	}
+
+	var (
+		failures     int32
+		totalRecords int
+		mx           sync.Mutex
+		wg           sync.WaitGroup
 	)
 
 	for _, lg := range info.Logs {
@@ -214,22 +230,24 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 		}
 
 		wg.Add(1)
-		go func(tid thread.ID, lid peer.ID, off cid.Cid, lim int) {
+		go func(tid thread.ID, lid peer.ID, off cid.Cid, head cid.Cid, lim int) {
 			defer wg.Done()
 			// if we don't have records in the log then skipping it
-			if pblg.Counter == thread.CounterUndef {
+			if pblg.Head.Cid == cid.Undef {
 				return
 			}
 
 			recs, err := s.net.getLocalRecords(ctx, tid, lid, off, lim, counter)
 			if err != nil {
-				log.Errorf("getting local records (thread %s, log %s): %v", tid, lid, err)
+				atomic.AddInt32(&failures, 1)
+				log.With("thread", tid.String()).With("log", lid.String()).Errorf("getting local records failed: %v", err)
 			}
 
 			var prs = make([]*pb.Log_Record, 0, len(recs))
 			for _, r := range recs {
 				pr, err := cbor.RecordToProto(ctx, s.net, r)
 				if err != nil {
+					atomic.AddInt32(&failures, 1)
 					log.Errorf("constructing proto-record %s (thread %s, log %s): %v", r.Cid(), tid, lid, err)
 					break
 				}
@@ -247,13 +265,22 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 				Records: prs,
 				Log:     pblg,
 			})
+			s.net.metrics.NumberOfRecordsSentForLog(len(prs))
+			totalRecords = len(prs)
 			mx.Unlock()
 
-			log.Debugf("sending %d records in log %s to %s", len(recs), lid, pid)
-		}(req.Body.ThreadID.ID, lg.ID, offset, limit)
+			log.With("thread", tid.String()).With("peer", pid.String()).With("offset", off.String()).With("head", head).Debugf("sending %d records in log to remote peer", len(recs))
+		}(req.Body.ThreadID.ID, lg.ID, offset, lg.Head.ID, limit)
 	}
 
 	wg.Wait()
+
+	s.net.metrics.NumberOfRecordsSentTotal(totalRecords)
+	if registry := s.net.tStat; registry != nil && failures == 0 {
+		// if requester was able to receive our latest records its
+		// equivalent to successful push in the reverse direction
+		registry.Apply(pid, req.Body.ThreadID.ID, threadStatusUploadDone)
+	}
 	return pbrecs, nil
 }
 
@@ -263,7 +290,6 @@ func (s *server) PushRecord(ctx context.Context, req *pb.PushRecordRequest) (*pb
 	if err != nil {
 		return nil, err
 	}
-	log.Debugf("received push record request from %s", pid)
 
 	// A log is required to accept new records
 	logpk, err := s.net.store.PubKey(req.Body.ThreadID.ID, req.Body.LogID.ID)
@@ -286,10 +312,147 @@ func (s *server) PushRecord(ctx context.Context, req *pb.PushRecordRequest) (*pb
 	if err = rec.Verify(logpk); err != nil {
 		return nil, status.Error(codes.Unauthenticated, err.Error())
 	}
-	if err = s.net.PutRecord(ctx, req.Body.ThreadID.ID, req.Body.LogID.ID, rec, req.Counter); err != nil {
+	counter := req.Body.Counter
+	// checking req.Counter for backwards compatibility
+	if counter == thread.CounterUndef {
+		counter = req.Counter
+	}
+	log.With("peer", pid.String()).
+		With("rid", rec.String()).
+		With("rcnt", counter).
+		With("log", req.Body.LogID.String()).
+		With("thread", req.Body.ThreadID.String()).
+		Debugf("received push record request from peer")
+
+	var final = threadStatusDownloadFailed
+	if registry := s.net.tStat; registry != nil {
+		// receiving and successful processing records is equivalent to pulling from the peer
+		registry.Apply(pid, req.Body.ThreadID.ID, threadStatusDownloadStarted)
+		defer func() { registry.Apply(pid, req.Body.ThreadID.ID, final) }()
+	}
+
+	// we may still have no counter if the version is very old :-)
+	if counter != thread.CounterUndef {
+		h, err := s.net.currentHead(req.Body.ThreadID.ID, req.Body.LogID.ID)
+		if err != nil {
+			return nil, status.Error(codes.Internal, err.Error())
+		}
+		// already have everything
+		if h.Counter >= counter {
+			final = threadStatusDownloadDone
+			return &pb.PushRecordReply{
+				Payload: &pb.PushRecordReply_PushRecordPayload{MissingCounter: thread.CounterUndef},
+			}, nil
+		}
+		if h.Counter+1 != counter {
+			if req.Body.Counter != thread.CounterUndef {
+				// we have a client using new format (it has counter in body) and thus it has extended protocol
+				return &pb.PushRecordReply{
+					Payload: &pb.PushRecordReply_PushRecordPayload{MissingCounter: h.Counter + 1},
+				}, nil
+			} else {
+				// backwards compatibility logic
+				s.net.queueGetRecords.Schedule(req.Body.LogID.ID, req.Body.ThreadID.ID, callPriorityHigh, s.net.updateRecordsFromPeer)
+				errString := fmt.Sprintf("can't push record because counters are different, have %d, need %d", h.Counter, req.Counter-1)
+				log.With("peer", pid.String()).
+					With("log", req.Body.LogID.String()).
+					With("thread", req.Body.ThreadID.String()).Errorf(errString)
+				return nil, status.Error(codes.Internal, errString)
+			}
+		}
+	}
+
+	// if it is not a pubsub then it is a push
+	if ctx.Value(recordPutOriginKey{}) == nil {
+		ctx = context.WithValue(ctx, recordPutOriginKey{}, metrics.RecordTypePush)
+	}
+	if err = s.net.PutRecord(ctx, req.Body.ThreadID.ID, req.Body.LogID.ID, rec, counter); err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
-	return &pb.PushRecordReply{}, nil
+
+	final = threadStatusDownloadDone
+
+	return &pb.PushRecordReply{
+		Payload: &pb.PushRecordReply_PushRecordPayload{MissingCounter: thread.CounterUndef},
+	}, nil
+}
+
+func (s *server) PushRecords(ctx context.Context, req *pb.PushRecordsRequest) (*pb.PushRecordsReply, error) {
+	pid, err := peerIDFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// A log is required to accept new records
+	logpk, err := s.net.store.PubKey(req.Body.ThreadID.ID, req.Body.LogID.ID)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	if logpk == nil {
+		return nil, status.Error(codes.NotFound, "log not found")
+	}
+
+	key, err := s.net.store.ServiceKey(req.Body.ThreadID.ID)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	var records []core.Record
+	for _, r := range req.Body.Records {
+		rec, err := cbor.RecordFromProto(r, key)
+		if err != nil {
+			return nil, status.Error(codes.Internal, err.Error())
+		}
+		if err = rec.Verify(logpk); err != nil {
+			return nil, status.Error(codes.Unauthenticated, err.Error())
+		}
+		records = append(records, rec)
+	}
+	var final = threadStatusDownloadFailed
+	if registry := s.net.tStat; registry != nil {
+		// receiving and successful processing records is equivalent to pulling from the peer
+		registry.Apply(pid, req.Body.ThreadID.ID, threadStatusDownloadStarted)
+		defer func() { registry.Apply(pid, req.Body.ThreadID.ID, final) }()
+	}
+
+	log.With("peer", pid.String()).
+		With("totalrecords", len(records)).
+		With("rcnt", req.Body.Counter).
+		With("log", req.Body.LogID.String()).
+		With("thread", req.Body.ThreadID.String()).
+		Debugf("received push records request from peer")
+
+	h, err := s.net.currentHead(req.Body.ThreadID.ID, req.Body.LogID.ID)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	// already have everything
+	if h.Counter >= req.Body.Counter+int64(len(records))-1 {
+		final = threadStatusDownloadDone
+		return &pb.PushRecordsReply{
+			Payload: &pb.PushRecordsReply_PushRecordsPayload{MissingCounter: thread.CounterUndef},
+		}, nil
+	}
+	if h.Counter+1 != req.Body.Counter {
+		return &pb.PushRecordsReply{
+			Payload: &pb.PushRecordsReply_PushRecordsPayload{MissingCounter: h.Counter + 1},
+		}, nil
+	}
+
+	// if it is not a pubsub then it is a push
+	if ctx.Value(recordPutOriginKey{}) == nil {
+		ctx = context.WithValue(ctx, recordPutOriginKey{}, metrics.RecordTypePush)
+	}
+	if err = s.net.putRecords(ctx, req.Body.ThreadID.ID, req.Body.LogID.ID, records, req.Body.Counter); err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	final = threadStatusDownloadDone
+
+	return &pb.PushRecordsReply{
+		Payload: &pb.PushRecordsReply_PushRecordsPayload{MissingCounter: thread.CounterUndef},
+	}, nil
 }
 
 // ExchangeEdges receives an exchange edges request.
@@ -298,7 +461,8 @@ func (s *server) ExchangeEdges(ctx context.Context, req *pb.ExchangeEdgesRequest
 	if err != nil {
 		return nil, err
 	}
-	log.Debugf("received exchange edges request from %s", pid)
+	log.With("peer", pid.String()).Debugf("received exchange edges request from peer")
+	started := time.Now()
 
 	var reply pb.ExchangeEdgesReply
 	for _, entry := range req.Body.Threads {
@@ -328,14 +492,24 @@ func (s *server) ExchangeEdges(ctx context.Context, req *pb.ExchangeEdgesRequest
 					}
 				}
 				if s.net.queueGetLogs.Schedule(pid, tid, prt, updateLogs) {
-					log.Debugf("log information update for thread %s from %s scheduled", tid, pid)
+					log.With("peer", pid.String()).With("thread", tid.String()).Debugf("log information update for thread %s from %s scheduled", tid, pid)
 				}
 			}
 
 			// need to get new records only if we have non empty heads on remote and the hashes are different
-			if headsEdgeRemote != lstoreds.EmptyEdgeValue && headsEdgeLocal != headsEdgeRemote {
-				if s.net.queueGetRecords.Schedule(pid, tid, callPriorityLow, s.net.updateRecordsFromPeer) {
-					log.Debugf("record update for thread %s from %s scheduled", tid, pid)
+			if headsEdgeRemote != lstoreds.EmptyEdgeValue {
+				if headsEdgeLocal != headsEdgeRemote {
+					updateRecordsFromPeer := func(ctx context.Context, p peer.ID, t thread.ID) error {
+						s.net.metrics.UpdateRecordsDelayAfterExchangeEdges(time.Since(started))
+						return s.net.updateRecordsFromPeer(ctx, p, t)
+					}
+					if s.net.queueGetRecords.Schedule(pid, tid, callPriorityLow, updateRecordsFromPeer) {
+						log.With("peer", pid.String()).With("thread", tid.String()).Debugf("record update for thread %s from %s scheduled", tid, pid)
+					}
+				} else if registry := s.net.tStat; registry != nil {
+					// equal heads could be interpreted as successful upload/download
+					registry.Apply(pid, tid, threadStatusDownloadDone)
+					registry.Apply(pid, tid, threadStatusUploadDone)
 				}
 			}
 

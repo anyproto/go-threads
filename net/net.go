@@ -16,7 +16,9 @@ import (
 	format "github.com/ipfs/go-ipld-format"
 	logging "github.com/ipfs/go-log"
 	"github.com/libp2p/go-libp2p-core/crypto"
+	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/host"
+	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
 	pstore "github.com/libp2p/go-libp2p-core/peerstore"
 	gostream "github.com/libp2p/go-libp2p-gostream"
@@ -28,6 +30,7 @@ import (
 	core "github.com/textileio/go-threads/core/net"
 	"github.com/textileio/go-threads/core/thread"
 	sym "github.com/textileio/go-threads/crypto/symmetric"
+	"github.com/textileio/go-threads/metrics"
 	pb "github.com/textileio/go-threads/net/pb"
 	"github.com/textileio/go-threads/net/queue"
 	"github.com/textileio/go-threads/net/util"
@@ -70,6 +73,8 @@ var (
 
 	// tokenChallengeTimeout is the duration of time given to an identity to complete a token challenge.
 	tokenChallengeTimeout = time.Minute
+
+	ErrSyncTrackingDisabled = errors.New("synchronization tracking disabled")
 )
 
 const (
@@ -84,6 +89,8 @@ var (
 // semaphore protecting thread info updates
 type semaThreadUpdate thread.ID
 
+type recordPutOriginKey struct{}
+
 func (t semaThreadUpdate) Key() string {
 	return "tu:" + string(t)
 }
@@ -93,19 +100,26 @@ type net struct {
 	format.DAGService
 	host   host.Host
 	bstore bs.Blockstore
+	store  lstore.Logstore
 
-	store lstore.Logstore
+	tStat     *threadStatusRegistry
+	connTrack *connTracker
 
 	rpc    *grpc.Server
 	server *server
 	bus    *broadcast.Broadcaster
 
+	metrics               metrics.Metrics
+	isPrivateReachability bool
+	useMaxPullLimit       bool
+
 	connectors map[thread.ID]*app.Connector
 	connLock   sync.RWMutex
 
-	semaphores      *util.SemaphorePool
-	queueGetLogs    queue.CallQueue
-	queueGetRecords queue.CallQueue
+	semaphores       *util.SemaphorePool
+	queueGetLogs     queue.CallQueue
+	queueGetRecords  queue.CallQueue
+	queuePushRecords *queue.SyncQueue
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -113,8 +127,14 @@ type net struct {
 
 // Config is used to specify thread instance options.
 type Config struct {
-	Debug  bool
-	PubSub bool
+	Debug                         bool
+	PubSub                        bool
+	SyncBook                      lstore.SyncBook
+	SyncTracking                  bool
+	DisableReachabilityMonitoring bool
+	SetHeadsMigrated              bool
+	UseMaxPullLimit               bool
+	Metrics                       metrics.Metrics
 }
 
 // NewNetwork creates an instance of net from the given host and thread store.
@@ -138,30 +158,48 @@ func NewNetwork(
 		}
 	}
 
-	ctx, cancel := context.WithCancel(ctx)
-	t := &net{
-		DAGService:      ds,
-		host:            h,
-		bstore:          bstore,
-		store:           ls,
-		rpc:             grpc.NewServer(serverOptions...),
-		bus:             broadcast.NewBroadcaster(EventBusCapacity),
-		connectors:      make(map[thread.ID]*app.Connector),
-		ctx:             ctx,
-		cancel:          cancel,
-		semaphores:      util.NewSemaphorePool(1),
-		queueGetLogs:    queue.NewFFQueue(ctx, QueuePollInterval, PullInterval),
-		queueGetRecords: queue.NewFFQueue(ctx, QueuePollInterval, PullInterval),
+	m := (metrics.Metrics)(&metrics.NoOpMetrics{})
+	if conf.Metrics != nil {
+		m = conf.Metrics
 	}
 
-	err = t.migrateHeadsIfNeeded(ctx, ls)
-	if err != nil {
-		return nil, err
+	ctx, cancel := context.WithCancel(ctx)
+	t := &net{
+		DAGService:       ds,
+		host:             h,
+		bstore:           bstore,
+		store:            ls,
+		rpc:              grpc.NewServer(serverOptions...),
+		bus:              broadcast.NewBroadcaster(EventBusCapacity),
+		connectors:       make(map[thread.ID]*app.Connector),
+		ctx:              ctx,
+		cancel:           cancel,
+		metrics:          m,
+		useMaxPullLimit:  conf.UseMaxPullLimit,
+		semaphores:       util.NewSemaphorePool(1, m),
+		queueGetLogs:     queue.NewFFQueue(ctx, QueuePollInterval, PullInterval),
+		queueGetRecords:  queue.NewFFQueue(ctx, QueuePollInterval, PullInterval),
+		queuePushRecords: queue.NewSyncQueue(ctx),
 	}
+	if conf.SetHeadsMigrated {
+		err = t.store.SetMigrationCompleted(lstore.MigrationVersion1)
+		if err != nil {
+			return nil, fmt.Errorf("failed set migration to version 1 state: %w", err)
+		}
+	}
+
+	go t.migrateHeadsIfNeeded(ctx)
 
 	t.server, err = newServer(t, conf.PubSub, dialOptions...)
 	if err != nil {
 		return nil, err
+	}
+
+	if conf.SyncTracking {
+		t.connTrack = NewConnTracker(h.Network())
+		if t.tStat, err = NewThreadStatusRegistry(conf.SyncBook, t.connTrack.Track); err != nil {
+			return nil, fmt.Errorf("thread status registry init failed: %w", err)
+		}
 	}
 
 	listener, err := gostream.Listen(h, thread.Protocol)
@@ -175,11 +213,40 @@ func NewNetwork(
 		}
 	}()
 
+	if !conf.DisableReachabilityMonitoring {
+		go t.monitorReachability(ctx)
+	}
 	go t.startPulling()
 	return t, nil
 }
 
-func (n *net) countRecords(ctx context.Context, tid thread.ID, rid cid.Cid) (int64, error) {
+func (n *net) monitorReachability(ctx context.Context) {
+	subReachability, _ := n.host.EventBus().Subscribe(new(event.EvtLocalReachabilityChanged))
+	defer subReachability.Close()
+	for {
+		select {
+		case ev, ok := <-subReachability.Out():
+			if !ok {
+				return
+			}
+			evt, ok := ev.(event.EvtLocalReachabilityChanged)
+			if !ok {
+				return
+			}
+			isPrivate := false
+			if evt.Reachability == network.ReachabilityPrivate {
+				isPrivate = true
+			}
+			n.connLock.Lock()
+			n.isPrivateReachability = isPrivate
+			n.connLock.Unlock()
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func (n *net) countRecords(ctx context.Context, tid thread.ID, rid cid.Cid, offset cid.Cid) (int64, error) {
 	var (
 		cursor        = rid
 		counter int64 = 0
@@ -189,9 +256,14 @@ func (n *net) countRecords(ctx context.Context, tid thread.ID, rid cid.Cid) (int
 		return 0, err
 	}
 
-	for cursor.Defined() {
+	for !cursor.Equals(offset) {
+		ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		r, err := cbor.GetRecord(ctx, n, cursor, sk)
+		cancel()
 		if err != nil {
+			log.With("thread id", tid.String()).
+				With("record id", cursor.String).
+				Error("failed to find record")
 			return 0, err
 		}
 		cursor = r.PrevID()
@@ -200,57 +272,130 @@ func (n *net) countRecords(ctx context.Context, tid thread.ID, rid cid.Cid) (int
 	return counter, nil
 }
 
-func (n *net) migrateHeadsIfNeeded(ctx context.Context, ls lstore.Logstore) (err error) {
-	threadIds, err := ls.Threads()
+func (n *net) migrateLog(ctx context.Context, tid thread.ID, lid peer.ID) error {
+	heads, err := n.store.Heads(tid, lid)
 	if err != nil {
 		return err
 	}
+	if len(heads) == 0 {
+		return nil
+	}
 
-	log.Info("Checking for heads migration")
-	isMigrationNeeded := false
+	// our logs have only one head
+	h := heads[0]
 
-	for _, tid := range threadIds {
-		tInfo, err := ls.GetThread(tid)
+	// we have already migrated the log
+	if h.Counter != thread.CounterUndef {
+		return nil
+	}
+
+	isBroken := false
+	counter, err := n.countRecords(ctx, tid, h.ID, cid.Undef)
+	if err != nil {
+		log.With("thread id", tid.String()).
+			With("log id", lid.String()).
+			With("head id", h.ID.String()).
+			Error("failed to count records for thread, marking it as undefined")
+		isBroken = true
+	} else {
+		log.With("thread id", tid.String()).
+			With("log id", lid.String()).
+			With("head id", h.ID.String()).
+			With("counter", counter).
+			Debug("counted records for thread")
+	}
+
+	ts := n.semaphores.Get(semaThreadUpdate(tid))
+	ts.Acquire()
+	defer ts.Release()
+
+	if current, err := n.currentHead(tid, lid); err != nil {
+		return fmt.Errorf("fetching head failed: %w", err)
+	} else if !current.ID.Equals(h.ID) && !isBroken {
+		// count additional records
+		additionalCounter, err := n.countRecords(ctx, tid, current.ID, h.ID)
+
+		// this should not happen hopefully :-)
 		if err != nil {
-			return err
+			log.With("thread id", tid.String()).
+				With("log id", lid.String()).
+				With("head id", h.ID.String()).
+				Error("failed to count additional records, returning error")
+			return fmt.Errorf("counting additional records failed: %w", err)
+		}
+		counter += additionalCounter
+		log.With("thread id", tid.String()).
+			With("log id", lid.String()).
+			With("head id", h.ID.String()).
+			With("counter", counter).
+			Debug("updated records counter for thread")
+		h = current
+	}
+
+	err = n.store.SetHead(tid, lid, thread.Head{
+		ID:      h.ID,
+		Counter: counter,
+	})
+	if err != nil {
+		return fmt.Errorf("setting head failed: %w", err)
+	}
+	return nil
+}
+
+func (n *net) migrateHeadsIfNeeded(ctx context.Context) {
+	threadIds, err := n.store.Threads()
+	if err != nil {
+		log.Errorf("could not get threads from logstore: %v", err)
+		return
+	}
+
+	log.Info("checking for heads migration")
+	completed, err := n.store.MigrationCompleted(lstore.MigrationVersion1)
+	if err != nil {
+		log.Errorf("error getting migration state: %v", err)
+		return
+	}
+	if completed {
+		log.Info("heads already migrated")
+		return
+	}
+
+	log.Info("starting migrating heads")
+
+	shouldMarkMigrationCompleted := true
+	for _, tid := range threadIds {
+		tInfo, err := n.store.GetThread(tid)
+		if err != nil {
+			log.With("thread", tid.String()).
+				Errorf("error getting thread: %v", err)
+			shouldMarkMigrationCompleted = false
+			continue
 		}
 
 		for _, l := range tInfo.Logs {
-			heads, err := ls.Heads(tid, l.ID)
+			err = n.migrateLog(ctx, tid, l.ID)
 			if err != nil {
-				return err
-			}
-			hslice := make([]thread.Head, 0)
-			for _, h := range heads {
-				// In this case we didn't migrate the thread
-				if h.Counter == thread.CounterUndef && h.ID != cid.Undef {
-					if !isMigrationNeeded {
-						log.Info("Starting migrating heads")
-						isMigrationNeeded = true
-					}
-					counter, err := n.countRecords(ctx, tid, h.ID)
-					if err != nil {
-						return err
-					}
-					log.Debugf("counter for thread %s, log %s, head %s is %d", tid, l.ID, h.ID, counter)
-
-					hslice = append(hslice, thread.Head{ID: h.ID, Counter: counter})
-				} else {
-					hslice = append(hslice, h)
-				}
-			}
-			err = ls.SetHeads(tid, l.ID, hslice)
-			if err != nil {
-				return err
+				log.With("thread", tid.String()).
+					With("log", l.ID.String()).
+					Errorf("error migrating log: %v", err)
+				shouldMarkMigrationCompleted = false
 			}
 		}
 	}
 
-	if isMigrationNeeded {
-		log.Info("Finished migrating heads")
+	if shouldMarkMigrationCompleted {
+		err = n.store.SetMigrationCompleted(lstore.MigrationVersion1)
+		if err != nil {
+			log.Errorf("migration succeded but failed to save migration state: %v", err)
+			return
+		}
+		log.Info("finished migrating heads")
+		// this is a sanity check that we have correct counters in the end of migration
+		// use only for testing
+		// go n.recountHeads(ctx)
+	} else {
+		log.Error("there were errors in migration, will try to migrate errored logs next time")
 	}
-
-	return nil
 }
 
 func (n *net) Close() (err error) {
@@ -266,6 +411,16 @@ func (n *net) Close() (err error) {
 		}
 	}
 	n.rpc.GracefulStop()
+
+	if n.connTrack != nil {
+		n.connTrack.Close()
+	}
+
+	if n.tStat != nil {
+		if err := n.tStat.Close(); err != nil {
+			log.Errorf("error closing thread status registry: %v", err)
+		}
+	}
 
 	var errs []error
 	weakClose := func(name string, c interface{}) {
@@ -351,8 +506,10 @@ func (n *net) CreateThread(
 	if err = n.store.AddThread(info); err != nil {
 		return
 	}
-	if _, err = n.createLog(id, args.LogKey, identity); err != nil {
-		return
+	if !args.NoLog {
+		if _, err = n.createLog(id, args.LogKey, identity); err != nil {
+			return
+		}
 	}
 	if n.server.ps != nil {
 		if err = n.server.ps.Add(id); err != nil {
@@ -417,7 +574,7 @@ func (n *net) AddThread(
 	}); err != nil {
 		return
 	}
-	if args.ThreadKey.CanRead() || args.LogKey != nil {
+	if !args.NoLog && (args.ThreadKey.CanRead() || args.LogKey != nil) {
 		if _, err = n.createLog(id, args.LogKey, identity); err != nil {
 			return
 		}
@@ -600,18 +757,22 @@ func (n *net) AddReplicator(
 	if err != nil {
 		return
 	}
-	managedLogs, err := n.store.GetManagedLogs(info.ID)
-	if err != nil {
-		return
-	}
-	for _, lg := range managedLogs {
-		if err = n.store.AddAddr(info.ID, lg.ID, addr, pstore.PermanentAddrTTL); err != nil {
-			return
+
+	containsAddr := func(l thread.LogInfo) bool {
+		for _, a := range l.Addrs {
+			if a.Equal(addr) {
+				return true
+			}
 		}
+		return false
 	}
-	info, err = n.store.GetThread(info.ID) // Update info
-	if err != nil {
-		return
+
+	var unreplicatedLogs []thread.LogInfo
+	for _, lg := range info.Logs {
+		if !containsAddr(lg) {
+			lg.Addrs = append(lg.Addrs, addr)
+			unreplicatedLogs = append(unreplicatedLogs, lg)
+		}
 	}
 
 	// Check if we're dialing ourselves (regardless of addr)
@@ -625,18 +786,13 @@ func (n *net) AddReplicator(
 			log.Warnf("peer %s address requires a DHT lookup", pid)
 		}
 
-		// Send all logs to the new replicator
-		for _, l := range info.Logs {
+		// Send all unreplicated logs to the new replicator
+		for _, l := range unreplicatedLogs {
 			if err = n.server.pushLog(ctx, info.ID, l, pid, info.Key.Service(), nil); err != nil {
-				for _, lg := range managedLogs {
-					// Rollback this log only and then bail
-					if lg.ID == l.ID {
-						if err := n.store.SetAddrs(info.ID, lg.ID, lg.Addrs, pstore.PermanentAddrTTL); err != nil {
-							log.Errorf("error rolling back log address change: %s", err)
-						}
-						break
-					}
-				}
+				return
+			}
+			if err = n.store.AddAddr(info.ID, l.ID, addr, pstore.PermanentAddrTTL); err != nil {
+				log.Errorf("error adding log to the store: %s", err)
 				return
 			}
 		}
@@ -644,7 +800,7 @@ func (n *net) AddReplicator(
 
 	// Send the updated log(s) to peers
 	var addrs []ma.Multiaddr
-	for _, l := range info.Logs {
+	for _, l := range unreplicatedLogs {
 		addrs = append(addrs, l.Addrs...)
 	}
 	peers, err := n.uniquePeers(addrs)
@@ -657,7 +813,7 @@ func (n *net) AddReplicator(
 		wg.Add(1)
 		go func(pid peer.ID) {
 			defer wg.Done()
-			for _, lg := range managedLogs {
+			for _, lg := range unreplicatedLogs {
 				if err = n.server.pushLog(ctx, info.ID, lg, pid, nil, nil); err != nil {
 					log.Errorf("error pushing log %s to %s: %v", lg.ID, pid, err)
 				}
@@ -722,6 +878,7 @@ func (n *net) CreateRecord(
 	for _, opt := range opts {
 		opt(args)
 	}
+	startTime := time.Now()
 	identity, err := n.Validate(id, args.Token, false)
 	if err != nil {
 		return
@@ -738,7 +895,18 @@ func (n *net) CreateRecord(
 		}
 	}
 
-	lg, err := n.getOrCreateLog(id, identity)
+	releaseIfNeeded := func() {}
+	// check if we need to take semaphore before adding record
+	// this can happen during background migration, because we can set an incorrect counter
+	if completed, _ := n.store.MigrationCompleted(lstore.MigrationVersion1); !completed {
+		ts := n.semaphores.Get(semaThreadUpdate(id))
+		ts.Acquire()
+		releaseIfNeeded = func() {
+			ts.Release()
+		}
+	}
+	afterPrepareMs := time.Now()
+	lg, err := n.getOrCreateLog(id, identity, args.LogPrivateKey)
 	if err != nil {
 		return
 	}
@@ -747,20 +915,35 @@ func (n *net) CreateRecord(
 		return
 	}
 	tr = NewRecord(r, id, lg.ID)
+	counter := lg.Head.Counter + 1
+	if lg.Head.IsFromBrokenLog() {
+		counter = thread.CounterUndef
+	}
 	head := thread.Head{
 		ID:      tr.Value().Cid(),
-		Counter: lg.Head.Counter + 1,
+		Counter: counter,
 	}
 	if err = n.store.SetHead(id, lg.ID, head); err != nil {
 		return
 	}
+
+	releaseIfNeeded()
+	afterNewRecordMs := time.Now()
 	log.Debugf("created record %s (thread=%s, log=%s)", tr.Value().Cid(), id, lg.ID)
 	if err = n.bus.SendWithTimeout(tr, notifyTimeout); err != nil {
 		return
 	}
-	if err = n.server.pushRecord(ctx, id, lg.ID, tr.Value(), lg.Head.Counter+1); err != nil {
+	afterLocalBusMs := time.Now()
+	if err = n.server.pushRecord(ctx, id, lg.ID, tr.Value(), counter); err != nil {
 		return
 	}
+	afterPushMs := time.Now()
+	n.metrics.CreateRecord(
+		id.String(),
+		afterPrepareMs.Sub(startTime).Milliseconds(),
+		afterNewRecordMs.Sub(afterPrepareMs).Milliseconds(),
+		afterLocalBusMs.Sub(afterNewRecordMs).Milliseconds(),
+		afterPushMs.Sub(afterLocalBusMs).Milliseconds())
 	return tr, nil
 }
 
@@ -1001,7 +1184,9 @@ func (n *net) putRecords(ctx context.Context, tid thread.ID, lid peer.ID, recs [
 	updatedCounter := head.Counter
 	connector, appConnected := n.getConnector(tid)
 	for _, record := range chain {
-		updatedCounter++
+		if !head.IsFromBrokenLog() {
+			updatedCounter++
+		}
 		if err := n.store.SetHead(
 			tid,
 			lid,
@@ -1060,7 +1245,7 @@ func (n *net) loadRecords(
 	// check if the last record was already loaded and processed
 	var last = recs[len(recs)-1]
 	// if we don't have the counter (but have some recs) then we were communicating with old version peer
-	if counter == thread.CounterUndef {
+	if counter == thread.CounterUndef || head.IsFromBrokenLog() {
 		if exist, err := n.isKnown(last.Cid()); err != nil {
 			return nil, thread.HeadUndef, err
 		} else if exist || !last.Cid().Defined() {
@@ -1076,6 +1261,13 @@ func (n *net) loadRecords(
 	)
 
 	for i := len(recs) - 1; i >= 0; i-- {
+		// adding metrics here because this is the only loop when we go through all the records
+		// excluding the ones we get from bitswap
+		recordType, ok := ctx.Value(recordPutOriginKey{}).(metrics.RecordType)
+		if ok {
+			n.metrics.AcceptRecord(recordType, n.isPrivateReachability)
+		}
+
 		var next = recs[i]
 		if c := next.Cid(); !c.Defined() || c.Equals(head.ID) {
 			complete = true
@@ -1250,12 +1442,15 @@ func (n *net) getLocalRecords(
 	limit int,
 	counter int64,
 ) ([]core.Record, error) {
+	started := time.Now()
 	lg, err := n.store.GetLog(id, lid)
 	if err != nil {
 		return nil, err
 	}
+	n.metrics.GetLocalRecordsGetLogDuration(time.Since(started))
+
 	// reverting to old logic if the new one is not supported
-	if counter == thread.CounterUndef && offset != cid.Undef {
+	if counter == thread.CounterUndef && offset != cid.Undef || lg.Head.IsFromBrokenLog() {
 		if offset.Defined() {
 			// ensure that we know about requested offset
 			if knownRecord, err := n.isKnown(offset); err != nil {
@@ -1281,6 +1476,7 @@ func (n *net) getLocalRecords(
 		recs   []core.Record
 	)
 
+	started = time.Now()
 	for len(recs) < limit {
 		if !cursor.Defined() || cursor.String() == offset.String() {
 			break
@@ -1293,7 +1489,48 @@ func (n *net) getLocalRecords(
 		recs = append([]core.Record{r}, recs...)
 		cursor = r.PrevID()
 	}
+	n.metrics.GetLocalRecordsCborGetRecordsDuration(time.Since(started))
 
+	return recs, nil
+}
+
+// getLocalRecordsAfterCounter is a more modern method that uses only counters
+func (n *net) getLocalRecordsAfterCounter(
+	ctx context.Context,
+	id thread.ID,
+	lid peer.ID,
+	counter int64) ([]core.Record, error) {
+	lg, err := n.store.GetLog(id, lid)
+	if err != nil {
+		return nil, err
+	}
+	localCounter := lg.Head.Counter
+	if localCounter <= counter {
+		return []core.Record{}, nil
+	}
+
+	sk, err := n.store.ServiceKey(id)
+	if err != nil {
+		return nil, err
+	}
+	if sk == nil {
+		return nil, fmt.Errorf("a service-key is required to get records")
+	}
+
+	var (
+		cursor = lg.Head.ID
+		recs   = make([]core.Record, 0, localCounter-counter)
+	)
+
+	for localCounter != counter {
+		r, err := cbor.GetRecord(ctx, n, cursor, sk)
+		if err != nil {
+			return recs, err
+		}
+		recs = append([]core.Record{r}, recs...)
+		cursor = r.PrevID()
+		localCounter--
+	}
 	return recs, nil
 }
 
@@ -1436,7 +1673,7 @@ func (n *net) createLog(id thread.ID, key crypto.Key, identity thread.PubKey) (i
 
 // getOrCreateLog returns a log for identity under the given thread.
 // If no log exists, a new one is created.
-func (n *net) getOrCreateLog(id thread.ID, identity thread.PubKey) (info thread.LogInfo, err error) {
+func (n *net) getOrCreateLog(id thread.ID, identity thread.PubKey, key crypto.Key) (info thread.LogInfo, err error) {
 	if identity == nil {
 		identity = thread.NewLibp2pPubKey(n.getPrivKey().GetPublic())
 	}
@@ -1461,7 +1698,7 @@ func (n *net) getOrCreateLog(id thread.ID, identity thread.PubKey) (info thread.
 		}
 		return n.store.GetLog(id, lid)
 	}
-	return n.createLog(id, nil, identity)
+	return n.createLog(id, key, identity)
 }
 
 // createExternalLogsIfNotExist creates an external logs if doesn't exists. The created
@@ -1526,7 +1763,7 @@ func (n *net) ensureUniqueLog(id thread.ID, key crypto.Key, identity thread.PubK
 		if lidb == nil {
 			// Check if we have an old-style "own" (unindexed) log
 			if identity.Equals(thread.NewLibp2pPubKey(n.getPrivKey().GetPublic())) {
-				if thrd.GetFirstPrivKeyLog().PrivKey != nil {
+				if thrd.GetFirstPrivKeyLog() != nil {
 					return lstore.ErrThreadExists
 				}
 			}
@@ -1549,6 +1786,7 @@ func (n *net) ensureUniqueLog(id thread.ID, key crypto.Key, identity thread.PubK
 
 // updateRecordsFromPeer fetches new logs & records from the peer and adds them in the local peer store.
 func (n *net) updateRecordsFromPeer(ctx context.Context, pid peer.ID, tid thread.ID) error {
+	log.With("thread", tid.String()).With("peer", pid.String()).Debugf("update records from peer")
 	offsets, _, err := n.threadOffsets(tid)
 	if err != nil {
 		return fmt.Errorf("getting offsets for thread %s failed: %w", tid, err)
@@ -1561,6 +1799,7 @@ func (n *net) updateRecordsFromPeer(ctx context.Context, pid peer.ID, tid thread
 	if err != nil {
 		return fmt.Errorf("getting records for thread %s from %s failed: %w", tid, pid, err)
 	}
+	ctx = context.WithValue(ctx, recordPutOriginKey{}, metrics.RecordTypeGet)
 	for lid, rs := range recs {
 		if err = n.putRecords(ctx, tid, lid, rs.records, rs.counter); err != nil {
 			return fmt.Errorf("putting records from log %s (thread %s) failed: %w", lid, tid, err)
@@ -1571,6 +1810,7 @@ func (n *net) updateRecordsFromPeer(ctx context.Context, pid peer.ID, tid thread
 
 // updateLogsFromPeer gets new logs information from the peer and adds it in the local peer store.
 func (n *net) updateLogsFromPeer(ctx context.Context, pid peer.ID, tid thread.ID) error {
+	log.With("thread", tid.String()).With("peer", pid.String()).Debugf("update logs from peer")
 	lgs, err := n.server.getLogs(ctx, tid, pid)
 	if err != nil {
 		return err
@@ -1608,4 +1848,39 @@ func (n *net) threadOffsets(tid thread.ID) (map[peer.ID]thread.Head, []peer.ID, 
 		return nil, nil, err
 	}
 	return offsets, peers, nil
+}
+
+func (n *net) Connectivity() (<-chan core.ConnectionStatus, error) {
+	if n.connTrack == nil {
+		return nil, ErrSyncTrackingDisabled
+	}
+	return n.connTrack.Notify(), nil
+}
+
+func (n *net) Status(tid thread.ID, pid peer.ID) (core.SyncStatus, error) {
+	if n.tStat == nil {
+		return core.SyncStatus{}, ErrSyncTrackingDisabled
+	}
+	return n.tStat.Status(tid, pid), nil
+}
+
+func (n *net) View(tid thread.ID) (map[peer.ID]core.SyncStatus, error) {
+	if n.tStat == nil {
+		return nil, ErrSyncTrackingDisabled
+	}
+	return n.tStat.View(tid), nil
+}
+
+func (n *net) PeerSummary(pid peer.ID) (core.SyncSummary, error) {
+	if n.tStat == nil {
+		return core.SyncSummary{}, ErrSyncTrackingDisabled
+	}
+	return n.tStat.PeerSummary(pid), nil
+}
+
+func (n *net) ThreadSummary(tid thread.ID) (core.SyncSummary, error) {
+	if n.tStat == nil {
+		return core.SyncSummary{}, ErrSyncTrackingDisabled
+	}
+	return n.tStat.ThreadSummary(tid), nil
 }

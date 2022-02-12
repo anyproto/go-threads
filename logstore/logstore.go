@@ -25,15 +25,26 @@ type logstore struct {
 	core.AddrBook
 	core.ThreadMetadata
 	core.HeadBook
+	core.SyncBook
+	core.MigrationBook
 }
 
 // NewLogstore creates a new log store from the given books.
-func NewLogstore(kb core.KeyBook, ab core.AddrBook, hb core.HeadBook, md core.ThreadMetadata) core.Logstore {
+func NewLogstore(
+	kb core.KeyBook,
+	ab core.AddrBook,
+	hb core.HeadBook,
+	md core.ThreadMetadata,
+	sb core.SyncBook,
+	mb core.MigrationBook,
+) core.Logstore {
 	return &logstore{
 		KeyBook:        kb,
 		AddrBook:       ab,
 		HeadBook:       hb,
 		ThreadMetadata: md,
+		SyncBook:       sb,
+		MigrationBook:  mb,
 	}
 }
 
@@ -52,6 +63,8 @@ func (ls *logstore) Close() (err error) {
 	weakClose("addressbook", ls.AddrBook)
 	weakClose("headbook", ls.HeadBook)
 	weakClose("threadmetadata", ls.ThreadMetadata)
+	weakClose("syncbook", ls.SyncBook)
+	weakClose("migrationbook", ls.MigrationBook)
 
 	if len(errs) > 0 {
 		return fmt.Errorf("failed while closing logstore; err(s): %q", errs)
@@ -233,10 +246,8 @@ func (ls *logstore) AddLog(id thread.ID, lg thread.LogInfo) error {
 	if err = ls.AddAddrs(id, lg.ID, lg.Addrs, pstore.PermanentAddrTTL); err != nil {
 		return err
 	}
-	if lg.Head.ID.Defined() {
-		if err = ls.SetHead(id, lg.ID, lg.Head); err != nil {
-			return err
-		}
+	if err = ls.SetHead(id, lg.ID, thread.HeadUndef); err != nil {
+		return err
 	}
 	// By definition 'owned' logs are also 'managed' logs.
 	if lg.Managed || lg.PrivKey != nil {

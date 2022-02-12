@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/textileio/go-threads/common"
 	"github.com/textileio/go-threads/core/thread"
@@ -39,6 +40,11 @@ func TestMigration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error in creating network")
 	}
+
+	// adding delay because the migration is asynchronous
+	ticker := time.NewTicker(3 * time.Second)
+	<-ticker.C
+	ticker.Stop()
 
 	// reading all thread ids from file
 	file, err := os.Open(repoPath + "/" + fileName)

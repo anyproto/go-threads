@@ -50,7 +50,10 @@ type operation struct {
 	JSONPatch  []byte
 }
 
-type jsonPatcher struct{}
+type jsonPatcher struct{
+	// we save all keys which we fail to delete in this key
+	objectsToDeleteKey ds.Key
+}
 
 var _ core.EventCodec = (*jsonPatcher)(nil)
 
@@ -58,6 +61,11 @@ func init() {
 	cbornode.RegisterCborType(patchEvent{})
 	cbornode.RegisterCborType(recordEvents{})
 	cbornode.RegisterCborType(operation{})
+}
+
+// NewWithKey returns a JSON-Patcher EventCodec with key
+func NewWithKey(objectsToDeleteKey ds.Key) core.EventCodec {
+	return &jsonPatcher{objectsToDeleteKey: objectsToDeleteKey}
 }
 
 // New returns a JSON-Patcher EventCodec
@@ -171,8 +179,18 @@ func (jp *jsonPatcher) Reduce(
 			log.Debug("\tsave operation applied")
 		case del:
 			value, err := txn.Get(key)
+			actions[i] = core.ReduceAction{Type: core.Delete, Collection: e.Collection(), InstanceID: e.InstanceID()}
 			if err != nil {
-				return nil, err
+				log.With("instance id", e.InstanceID().String()).
+					Errorf("failed to delete record: %v", err)
+				if len(jp.objectsToDeleteKey.String()) > 0 {
+					err = txn.Put(jp.objectsToDeleteKey.ChildString(e.InstanceID().String()), nil)
+					if err != nil {
+						log.With("instance id", e.InstanceID().String()).
+							Errorf("failed to put deleted key for record: %v", err)
+					}
+				}
+				continue
 			}
 			if err := txn.Delete(key); err != nil {
 				return nil, err
@@ -180,7 +198,6 @@ func (jp *jsonPatcher) Reduce(
 			if err := indexFunc(e.Collection(), key, value, nil, txn); err != nil {
 				return nil, fmt.Errorf("error when removing index: %w", err)
 			}
-			actions[i] = core.ReduceAction{Type: core.Delete, Collection: e.Collection(), InstanceID: e.InstanceID()}
 			log.Debug("\tdelete operation applied")
 		default:
 			return nil, errUnknownOperation

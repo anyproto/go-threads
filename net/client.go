@@ -8,7 +8,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gogo/protobuf/proto"
 	"github.com/gogo/status"
+	"github.com/libp2p/go-libp2p-core/crypto"
 	"github.com/libp2p/go-libp2p-core/peer"
 	pstore "github.com/libp2p/go-libp2p-core/peerstore"
 	gostream "github.com/libp2p/go-libp2p-gostream"
@@ -45,11 +47,20 @@ func (s *server) getLogs(ctx context.Context, id thread.ID, pid peer.ID) ([]thre
 		ThreadID:   &pb.ProtoThreadID{ID: id},
 		ServiceKey: &pb.ProtoKey{Key: sk},
 	}
+	// TODO: remove signing when enough users update
+	sig, key, err := s.signRequestBody(body)
+	if err != nil {
+		return nil, err
+	}
 	req := &pb.GetLogsRequest{
+		Header: &pb.Header{
+			PubKey:    &pb.ProtoPubKey{PubKey: key},
+			Signature: sig,
+		},
 		Body: body,
 	}
 
-	log.Debugf("getting %s logs from %s...", id, pid)
+	log.With("thread", id.String()).With("peer", pid.String()).Debugf("getting %s logs from %s...", id, pid)
 
 	client, err := s.dial(pid)
 	if err != nil {
@@ -63,7 +74,7 @@ func (s *server) getLogs(ctx context.Context, id thread.ID, pid peer.ID) ([]thre
 		return nil, err
 	}
 
-	log.Debugf("received %d logs from %s", len(reply.Logs), pid)
+	log.With("thread", id.String()).With("peer", pid.String()).Debugf("received %d logs", len(reply.Logs))
 
 	lgs := make([]thread.LogInfo, len(reply.Logs))
 	for i, l := range reply.Logs {
@@ -85,11 +96,25 @@ func (s *server) pushLog(ctx context.Context, id thread.ID, lg thread.LogInfo, p
 	if rk != nil {
 		body.ReadKey = &pb.ProtoKey{Key: rk}
 	}
+
+	counter := body.Log.Counter
+	body.Log.Counter = 0 // to omit counter
+	// TODO: remove signing and counter magic when enough users update
+	sig, key, err := s.signRequestBody(body)
+	body.Log.Counter = counter
+
+	if err != nil {
+		return err
+	}
 	lreq := &pb.PushLogRequest{
+		Header: &pb.Header{
+			PubKey:    &pb.ProtoPubKey{PubKey: key},
+			Signature: sig,
+		},
 		Body: body,
 	}
 
-	log.Debugf("pushing log %s to %s...", lg.ID, pid)
+	log.With("thread", id.String()).With("peer", pid.String()).Debugf("pushing log to peer...")
 
 	client, err := s.dial(pid)
 	if err != nil {
@@ -163,13 +188,15 @@ func (s *server) buildGetRecordsRequest(
 	}
 
 	var pblgs = make([]*pb.GetRecordsRequest_Body_LogEntry, 0, len(offsets))
+	var counters = make([]int64, 0, len(offsets))
 	for lid, offset := range offsets {
 		pblgs = append(pblgs, &pb.GetRecordsRequest_Body_LogEntry{
 			LogID:   &pb.ProtoPeerID{ID: lid},
 			Offset:  &pb.ProtoCid{Cid: offset.ID},
 			Limit:   int32(limit),
-			Counter: offset.Counter,
+			Counter: 0,
 		})
+		counters = append(counters, offset.Counter)
 	}
 
 	body := &pb.GetRecordsRequest_Body{
@@ -177,8 +204,21 @@ func (s *server) buildGetRecordsRequest(
 		ServiceKey: &pb.ProtoKey{Key: serviceKey},
 		Logs:       pblgs,
 	}
+	// TODO: remove signing and counter magic when enough users update
+	sig, key, err := s.signRequestBody(body)
+	if err != nil {
+		err = fmt.Errorf("signing GetRecords request: %w", err)
+		return
+	}
+	for i := range counters {
+		body.Logs[i].Counter = counters[i]
+	}
 
 	req = &pb.GetRecordsRequest{
+		Header: &pb.Header{
+			PubKey:    &pb.ProtoPubKey{PubKey: key},
+			Signature: sig,
+		},
 		Body: body,
 	}
 	return
@@ -197,7 +237,18 @@ func (s *server) getRecordsFromPeer(
 	req *pb.GetRecordsRequest,
 	serviceKey *sym.Key,
 ) (map[peer.ID]peerRecords, error) {
-	log.Debugf("getting records from %s...", pid)
+	log.With("thread", tid.String()).With("peer", pid.String()).Debugf("getting records from peer...")
+
+	started := time.Now()
+	s.net.metrics.ThreadPulled()
+	defer s.net.metrics.ThreadPullDuration(time.Since(started))
+
+	var final = threadStatusDownloadFailed
+	if registry := s.net.tStat; registry != nil {
+		registry.Apply(pid, tid, threadStatusDownloadStarted)
+		defer func() { registry.Apply(pid, tid, final) }()
+	}
+
 	client, err := s.dial(pid)
 	if err != nil {
 		return nil, fmt.Errorf("dial %s failed: %w", pid, err)
@@ -214,7 +265,7 @@ func (s *server) getRecordsFromPeer(
 
 	for _, l := range reply.Logs {
 		var logID = l.LogID.ID
-		log.Debugf("received %d records in log %s from %s", len(l.Records), logID, pid)
+		log.With("thread", tid.String()).With("peer", pid.String()).With("log", logID.String()).Debugf("received %d records in log from peer", len(l.Records))
 
 		if l.Log != nil && len(l.Log.Addrs) > 0 {
 			if err = s.net.store.AddAddrs(tid, logID, addrsFromProto(l.Log.Addrs), pstore.PermanentAddrTTL); err != nil {
@@ -249,9 +300,6 @@ func (s *server) getRecordsFromPeer(
 			records = append(records, rec)
 		}
 		counter := thread.CounterUndef
-		// Old version may still send nil Logs, because of how
-		// old server GetRecords method worked, now it is fixed
-		// but we can still have crashes if we don't check this for backwards compatibility
 		if l.Log != nil {
 			counter = l.Log.Counter
 		}
@@ -261,6 +309,7 @@ func (s *server) getRecordsFromPeer(
 		}
 	}
 
+	final = threadStatusDownloadDone
 	return recs, nil
 }
 
@@ -288,28 +337,99 @@ func (s *server) pushRecord(ctx context.Context, tid thread.ID, lid peer.ID, rec
 		ThreadID: &pb.ProtoThreadID{ID: tid},
 		LogID:    &pb.ProtoPeerID{ID: lid},
 		Record:   pbrec,
+		Counter:  counter,
+	}
+	// TODO: remove signing when enough users update
+	sig, key, err := s.signRequestBody(body)
+	if err != nil {
+		return err
 	}
 	req := &pb.PushRecordRequest{
+		Header: &pb.Header{
+			PubKey:    &pb.ProtoPubKey{PubKey: key},
+			Signature: sig,
+		},
 		Body:    body,
 		Counter: counter,
 	}
 
 	// Push to each address
 	for _, p := range peers {
-		go func(pid peer.ID) {
-			if err := s.pushRecordToPeer(req, pid, tid, lid); err != nil {
-				log.Errorf("pushing record to %s (thread: %s, log: %s) failed: %v", pid, tid, lid, err)
+		// we use special sync queue to make sure that push records come in correct order
+		s.net.queuePushRecords.PushBack(p, tid, func(ctx context.Context, queuePeer peer.ID, _ thread.ID) error {
+			if err := s.pushRecordToPeer(req, queuePeer, tid, lid); err != nil {
+				return fmt.Errorf("pushing record to peer failed: %w", err)
 			}
-		}(p)
+			return nil
+		})
 	}
 
 	// Finally, publish to the thread's topic
 	if s.ps != nil {
 		if err = s.ps.Publish(ctx, tid, req); err != nil {
-			log.Errorf("error publishing record: %s", err)
+			log.With("thread", tid.String()).Errorf("error publishing record: %s", err)
 		}
 	}
 
+	return nil
+}
+
+func (s *server) pushRecordsToPeer(
+	req *pb.PushRecordsRequest,
+	pid peer.ID,
+	tid thread.ID) error {
+	var final = threadStatusUploadFailed
+	if registry := s.net.tStat; registry != nil {
+		registry.Apply(pid, tid, threadStatusUploadStarted)
+		defer func() { registry.Apply(pid, tid, final) }()
+	}
+
+	client, err := s.dial(pid)
+	if err != nil {
+		return fmt.Errorf("dial failed: %w", err)
+	}
+	rctx, cancel := context.WithTimeout(context.Background(), PushTimeout)
+	defer cancel()
+
+	_, err = client.PushRecords(rctx, req)
+	return err
+}
+
+func (s *server) enqueuePushRecordsRequestToPeer(
+	ctx context.Context,
+	pid peer.ID,
+	tid thread.ID,
+	lid peer.ID,
+	minCounter int64,
+) error {
+	recs, err := s.net.getLocalRecordsAfterCounter(ctx, tid, lid, minCounter)
+	if err != nil {
+		return err
+	}
+	var prs = make([]*pb.Log_Record, 0, len(recs))
+	for _, r := range recs {
+		pr, err := cbor.RecordToProto(ctx, s.net, r)
+		if err != nil {
+			log.Errorf("constructing proto-record %s (thread %s, log %s): %v", r.Cid(), tid, lid, err)
+			break
+		}
+		prs = append(prs, pr)
+	}
+
+	replaceReq := &pb.PushRecordsRequest{
+		Body: &pb.PushRecordsRequest_Body{
+			ThreadID: &pb.ProtoThreadID{ID: tid},
+			LogID:    &pb.ProtoPeerID{ID: lid},
+			Records:  prs,
+			Counter:  minCounter + 1,
+		},
+	}
+	s.net.queuePushRecords.ReplaceQueue(pid, tid, func(ctx context.Context, _ peer.ID, _ thread.ID) error {
+		if err := s.pushRecordsToPeer(replaceReq, pid, tid); err != nil {
+			return fmt.Errorf("pushing records to peer failed: %w", err)
+		}
+		return nil
+	})
 	return nil
 }
 
@@ -319,24 +439,39 @@ func (s *server) pushRecordToPeer(
 	tid thread.ID,
 	lid peer.ID,
 ) error {
+	var final = threadStatusUploadFailed
+	if registry := s.net.tStat; registry != nil {
+		registry.Apply(pid, tid, threadStatusUploadStarted)
+		defer func() { registry.Apply(pid, tid, final) }()
+	}
+
 	client, err := s.dial(pid)
 	if err != nil {
 		return fmt.Errorf("dial failed: %w", err)
 	}
+
 	rctx, cancel := context.WithTimeout(context.Background(), PushTimeout)
 	defer cancel()
-	_, err = client.PushRecord(rctx, req)
+	res, err := client.PushRecord(rctx, req)
 	if err == nil {
-		return nil
+		if res.GetPayload().GetMissingCounter() != thread.CounterUndef {
+			enqCtx, cancel := context.WithTimeout(context.Background(), PushTimeout)
+			defer cancel()
+			return s.enqueuePushRecordsRequestToPeer(enqCtx, pid, tid, lid, res.Payload.MissingCounter-1)
+		} else {
+			final = threadStatusUploadDone
+			return nil
+		}
 	}
 
 	switch status.Convert(err).Code() {
 	case codes.Unavailable:
-		log.Debugf("%s unavailable, skip pushing the record", pid)
+		log.With("peer", pid.String()).With("thread", tid.String()).Debugf("peer unavailable, skip pushing the record")
 		return nil
 
 	case codes.NotFound:
 		// send the missing log
+		log.With("peer", pid.String()).With("thread", tid.String()).Warnf("push record to remote peer failed, not found. Resend the log and try again...")
 		lctx, cancel := context.WithTimeout(s.net.ctx, PushTimeout)
 		defer cancel()
 		lg, err := s.net.store.GetLog(tid, lid)
@@ -347,12 +482,36 @@ func (s *server) pushRecordToPeer(
 			ThreadID: &pb.ProtoThreadID{ID: tid},
 			Log:      logToProto(lg),
 		}
+
+		// TODO: remove signing and counter magic when enough users update
+		counter := body.Log.Counter
+		body.Log.Counter = 0
+		sig, key, err := s.signRequestBody(body)
+		body.Log.Counter = counter
+
+		if err != nil {
+			return fmt.Errorf("signing PushLog request: %w", err)
+		}
 		lreq := &pb.PushLogRequest{
+			Header: &pb.Header{
+				PubKey:    &pb.ProtoPubKey{PubKey: key},
+				Signature: sig,
+			},
 			Body: body,
 		}
 		if _, err = client.PushLog(lctx, lreq); err != nil {
 			return fmt.Errorf("pushing missing log: %w", err)
 		}
+
+		enqCtx, cancel := context.WithTimeout(context.Background(), PushTimeout)
+		defer cancel()
+		err = s.enqueuePushRecordsRequestToPeer(enqCtx, pid, tid, lid, thread.CounterUndef)
+		if err != nil {
+			return err
+		}
+
+		final = threadStatusUploadDone
+
 		return nil
 
 	default:
@@ -362,7 +521,11 @@ func (s *server) pushRecordToPeer(
 
 // exchangeEdges of specified threads with a peer.
 func (s *server) exchangeEdges(ctx context.Context, pid peer.ID, tids []thread.ID) error {
-	log.Debugf("exchanging edges of %d threads with %s...", len(tids), pid)
+	var tidsStr []string
+	for _, tid := range tids {
+		tidsStr = append(tidsStr, tid.String())
+	}
+	log.With("peer", pid.String()).Debugf("exchanging edges of %d threads: %v", len(tids), tidsStr)
 	var body = &pb.ExchangeEdgesRequest_Body{}
 
 	// fill local edges
@@ -376,14 +539,23 @@ func (s *server) exchangeEdges(ctx context.Context, pid peer.ID, tids []thread.I
 				AddressEdge: addrsEdge,
 			})
 		default:
-			log.Errorf("getting local edges for %s failed: %v", tid, err)
+			log.With("thread", tid.String()).Errorf("getting local edges failed: %v", err)
 		}
 	}
 	if len(body.Threads) == 0 {
 		return nil
 	}
 
+	// TODO: remove signing when enough users update
+	sig, key, err := s.signRequestBody(body)
+	if err != nil {
+		return fmt.Errorf("signing request body: %w", err)
+	}
 	req := &pb.ExchangeEdgesRequest{
+		Header: &pb.Header{
+			PubKey:    &pb.ProtoPubKey{PubKey: key},
+			Signature: sig,
+		},
 		Body: body,
 	}
 
@@ -399,15 +571,15 @@ func (s *server) exchangeEdges(ctx context.Context, pid peer.ID, tids []thread.I
 		if st, ok := status.FromError(err); ok {
 			switch st.Code() {
 			case codes.Unimplemented:
-				log.Debugf("%s doesn't support edge exchange, falling back to direct record pulling", pid)
+				log.With("peer", pid.String()).Debugf("peer doesn't support edge exchange, falling back to direct record pulling")
 				for _, tid := range tids {
 					if s.net.queueGetRecords.Schedule(pid, tid, callPriorityLow, s.net.updateRecordsFromPeer) {
-						log.Debugf("record update for thread %s from %s scheduled", tid, pid)
+						log.With("thread", tid.String()).With("peer", pid.String()).Debugf("record update scheduled")
 					}
 				}
 				return nil
 			case codes.Unavailable:
-				log.Debugf("%s unavailable, skip edge exchange", pid)
+				log.With("peer", pid.String()).Debugf("peer unavailable, skip edge exchange: %s", err.Error())
 				return nil
 			}
 		}
@@ -421,7 +593,7 @@ func (s *server) exchangeEdges(ctx context.Context, pid peer.ID, tids []thread.I
 		addrsEdgeLocal, headsEdgeLocal, err := s.localEdges(tid)
 		// we allow local edges to be empty, because the other peer can still have more information
 		if err != nil && err != errNoHeadsEdge && err != errNoAddrsEdge {
-			log.Errorf("second retrieval of local edges for %s failed: %v", tid, err)
+			log.With("thread", tid.String()).With("peer", pid.String()).Errorf("second retrieval of local edges failed: %v", err)
 			continue
 		}
 
@@ -430,16 +602,24 @@ func (s *server) exchangeEdges(ctx context.Context, pid peer.ID, tids []thread.I
 		// Note that previous versions also sent 0 (aka EmptyEdgeValue) values when the addresses
 		// were non-existent, so it shouldn't break backwards compatibility
 		if responseEdge != lstoreds.EmptyEdgeValue && responseEdge != addrsEdgeLocal {
+			s.net.metrics.DifferentAddressEdges(addrsEdgeLocal, responseEdge, pid.String(), tid.String())
 			if s.net.queueGetLogs.Schedule(pid, tid, callPriorityLow, s.net.updateLogsFromPeer) {
-				log.Debugf("log information update for thread %s from %s scheduled", tid, pid)
+				log.With("thread", tid.String()).With("peer", pid.String()).Debugf("log information update for thread scheduled")
 			}
 		}
 
 		responseEdge = e.GetHeadsEdge()
 		// We only update the records if we got non empty values and different hashes for heads
-		if responseEdge != lstoreds.EmptyEdgeValue && responseEdge != headsEdgeLocal {
-			if s.net.queueGetRecords.Schedule(pid, tid, callPriorityLow, s.net.updateRecordsFromPeer) {
-				log.Debugf("record update for thread %s from %s scheduled", tid, pid)
+		if responseEdge != lstoreds.EmptyEdgeValue {
+			if responseEdge != headsEdgeLocal {
+				s.net.metrics.DifferentHeadEdges(headsEdgeLocal, responseEdge, pid.String(), tid.String())
+				if s.net.queueGetRecords.Schedule(pid, tid, callPriorityLow, s.net.updateRecordsFromPeer) {
+					log.Debugf("record update for thread %s from %s scheduled", tid, pid)
+				}
+			} else if registry := s.net.tStat; registry != nil {
+				// equal heads could be interpreted as successful upload/download
+				registry.Apply(pid, tid, threadStatusDownloadDone)
+				registry.Apply(pid, tid, threadStatusUploadDone)
 			}
 		}
 	}
@@ -455,7 +635,7 @@ func (s *server) dial(peerID peer.ID) (pb.ServiceClient, error) {
 	if ok {
 		if conn.GetState() == connectivity.Shutdown {
 			if err := conn.Close(); err != nil {
-				log.Errorf("error closing connection: %v", err)
+				log.With("peer", peerID.String()).Errorf("error closing connection: %v", err)
 			}
 		} else {
 			return pb.NewServiceClient(conn), nil
@@ -490,6 +670,24 @@ func (s *server) getLibp2pDialer() grpc.DialOption {
 
 func withErrLog(pid peer.ID, f func(pid peer.ID) error) {
 	if err := f(pid); err != nil {
-		log.Error(err.Error())
+		log.With("peer", pid.String()).Error(err.Error())
 	}
+}
+
+// signRequestBody signs an outbound request body with the hosts's private key.
+func (s *server) signRequestBody(msg proto.Marshaler) (sig []byte, pk crypto.PubKey, err error) {
+	payload, err := msg.Marshal()
+	if err != nil {
+		return
+	}
+	sk := s.net.getPrivKey()
+	if sk == nil {
+		err = fmt.Errorf("private key for host not found")
+		return
+	}
+	sig, err = sk.Sign(payload)
+	if err != nil {
+		return
+	}
+	return sig, sk.GetPublic(), nil
 }
