@@ -239,6 +239,10 @@ func (s *server) getRecordsFromPeer(
 ) (map[peer.ID]peerRecords, error) {
 	log.With("thread", tid.String()).With("peer", pid.String()).Debugf("getting records from peer...")
 
+	started := time.Now()
+	s.net.metrics.ThreadPulled()
+	defer s.net.metrics.ThreadPullDuration(time.Since(started))
+
 	var final = threadStatusDownloadFailed
 	if registry := s.net.tStat; registry != nil {
 		registry.Apply(pid, tid, threadStatusDownloadStarted)
