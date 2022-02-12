@@ -195,12 +195,16 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 	}
 	pbrecs.Logs = make([]*pb.GetRecordsReply_LogEntry, 0, len(info.Logs))
 
-	var (
+	logRecordLimit := MaxPullLimit
+	if !s.net.useMaxPullLimit {
 		logRecordLimit = MaxPullLimit / len(info.Logs)
-		failures       int32
-		totalRecords   int
-		mx             sync.Mutex
-		wg             sync.WaitGroup
+	}
+
+	var (
+		failures     int32
+		totalRecords int
+		mx           sync.Mutex
+		wg           sync.WaitGroup
 	)
 
 	for _, lg := range info.Logs {
