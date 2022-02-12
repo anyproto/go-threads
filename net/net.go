@@ -111,6 +111,7 @@ type net struct {
 
 	metrics               metrics.Metrics
 	isPrivateReachability bool
+	useMaxPullLimit       bool
 
 	connectors map[thread.ID]*app.Connector
 	connLock   sync.RWMutex
@@ -132,6 +133,7 @@ type Config struct {
 	SyncTracking                  bool
 	DisableReachabilityMonitoring bool
 	SetHeadsMigrated              bool
+	UseMaxPullLimit               bool
 	Metrics                       metrics.Metrics
 }
 
@@ -173,6 +175,7 @@ func NewNetwork(
 		ctx:              ctx,
 		cancel:           cancel,
 		metrics:          m,
+		useMaxPullLimit:  conf.UseMaxPullLimit,
 		semaphores:       util.NewSemaphorePool(1, m),
 		queueGetLogs:     queue.NewFFQueue(ctx, QueuePollInterval, PullInterval),
 		queueGetRecords:  queue.NewFFQueue(ctx, QueuePollInterval, PullInterval),
