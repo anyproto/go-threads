@@ -148,7 +148,8 @@ func (jp *jsonPatcher) Reduce(
 				return nil, err
 			}
 			if exist {
-				return nil, errCantCreateExistingInstance
+				log.Debug("can't create already existing record for %s in %s; skip it", e.InstanceID().String(), e.Collection())
+				continue
 			}
 			if err := txn.Put(key, je.Patch.JSONPatch); err != nil {
 				return nil, fmt.Errorf("error when reducing create event: %w", err)
