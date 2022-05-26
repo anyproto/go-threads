@@ -236,12 +236,12 @@ func (d *DB) saveName(prevName string) error {
 	if !nameRx.MatchString(d.name) {
 		return ErrInvalidName
 	}
-	return d.datastore.Put(dsName, []byte(d.name))
+	return d.datastore.Put(context.Background(), dsName, []byte(d.name))
 }
 
 // loadName loads db name if present.
 func (d *DB) loadName() error {
-	bytes, err := d.datastore.Get(dsName)
+	bytes, err := d.datastore.Get(context.Background(), dsName)
 	if err != nil && !errors.Is(err, ds.ErrNotFound) {
 		return err
 	}
@@ -257,7 +257,7 @@ func (d *DB) reCreateCollections() error {
 	defer d.lock.Unlock()
 	log.Debugf("recreating collections in %s", d.name)
 
-	results, err := d.datastore.Query(query.Query{
+	results, err := d.datastore.Query(context.Background(), query.Query{
 		Prefix: dsSchemas.String(),
 	})
 	if err != nil {
@@ -270,11 +270,11 @@ func (d *DB) reCreateCollections() error {
 		if err := json.Unmarshal(res.Value, schema); err != nil {
 			return err
 		}
-		wv, err := d.datastore.Get(dsValidators.ChildString(name))
+		wv, err := d.datastore.Get(context.Background(), dsValidators.ChildString(name))
 		if err != nil && !errors.Is(err, ds.ErrNotFound) {
 			return err
 		}
-		rf, err := d.datastore.Get(dsFilters.ChildString(name))
+		rf, err := d.datastore.Get(context.Background(), dsFilters.ChildString(name))
 		if err != nil && !errors.Is(err, ds.ErrNotFound) {
 			return err
 		}
@@ -288,7 +288,7 @@ func (d *DB) reCreateCollections() error {
 			return err
 		}
 		var indexes map[string]Index
-		index, err := d.datastore.Get(dsIndexes.ChildString(name))
+		index, err := d.datastore.Get(context.Background(), dsIndexes.ChildString(name))
 		if err == nil && index != nil {
 			if err := json.Unmarshal(index, &indexes); err != nil {
 				return err
@@ -312,13 +312,13 @@ type Info struct {
 }
 
 func (d *DB) GetNonDeletedRecords() ([]string, error) {
-	txn, err := d.datastore.NewTransaction(true)
+	txn, err := d.datastore.NewTransaction(context.Background(), true)
 	if err != nil {
 		return nil, err
 	}
-	defer txn.Discard()
+	defer txn.Discard(context.Background())
 
-	res, err := txn.Query(query.Query{
+	res, err := txn.Query(context.Background(), query.Query{
 		Prefix:   objectsToDeleteKey.String(),
 		KeysOnly: true,
 	})
@@ -469,16 +469,16 @@ func (d *DB) addIndexes(c *Collection, schema *jsonschema.Schema, indexes []Inde
 
 func (d *DB) saveCollection(c *Collection) error {
 	log.Debugf("saving collection %s in %s", c.name, d.name)
-	if err := d.datastore.Put(dsSchemas.ChildString(c.name), c.GetSchema()); err != nil {
+	if err := d.datastore.Put(context.Background(), dsSchemas.ChildString(c.name), c.GetSchema()); err != nil {
 		return err
 	}
 	if c.rawWriteValidator != nil {
-		if err := d.datastore.Put(dsValidators.ChildString(c.name), c.rawWriteValidator); err != nil {
+		if err := d.datastore.Put(context.Background(), dsValidators.ChildString(c.name), c.rawWriteValidator); err != nil {
 			return err
 		}
 	}
 	if c.rawReadFilter != nil {
-		if err := d.datastore.Put(dsFilters.ChildString(c.name), c.rawReadFilter); err != nil {
+		if err := d.datastore.Put(context.Background(), dsFilters.ChildString(c.name), c.rawReadFilter); err != nil {
 			return err
 		}
 	}
@@ -538,23 +538,23 @@ func (d *DB) DeleteCollection(name string, opts ...Option) error {
 	if !ok {
 		return ErrCollectionNotFound
 	}
-	txn, err := d.datastore.NewTransaction(false)
+	txn, err := d.datastore.NewTransaction(context.Background(), false)
 	if err != nil {
 		return err
 	}
-	if err := txn.Delete(dsIndexes.ChildString(c.name)); err != nil {
+	if err := txn.Delete(context.Background(), dsIndexes.ChildString(c.name)); err != nil {
 		return err
 	}
-	if err := txn.Delete(dsSchemas.ChildString(c.name)); err != nil {
+	if err := txn.Delete(context.Background(), dsSchemas.ChildString(c.name)); err != nil {
 		return err
 	}
-	if err := txn.Delete(dsValidators.ChildString(c.name)); err != nil {
+	if err := txn.Delete(context.Background(), dsValidators.ChildString(c.name)); err != nil {
 		return err
 	}
-	if err := txn.Delete(dsFilters.ChildString(c.name)); err != nil {
+	if err := txn.Delete(context.Background(), dsFilters.ChildString(c.name)); err != nil {
 		return err
 	}
-	if err := txn.Commit(); err != nil {
+	if err := txn.Commit(context.Background()); err != nil {
 		return err
 	}
 	delete(d.collections, c.name)

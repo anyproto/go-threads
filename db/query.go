@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"reflect"
@@ -301,11 +302,11 @@ func (t *Txn) Find(q *Query) ([][]byte, error) {
 	if err := q.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid query: %s", err)
 	}
-	txn, err := t.collection.db.datastore.NewTransactionExtended(true)
+	txn, err := t.collection.db.datastore.NewTransactionExtended(context.Background(), true)
 	if err != nil {
 		return nil, fmt.Errorf("error building internal query: %v", err)
 	}
-	defer txn.Discard()
+	defer txn.Discard(context.Background())
 	iter, err := newIterator(txn, t.collection.baseKey(), q)
 	if err != nil {
 		return nil, err
@@ -501,14 +502,14 @@ func traverseFieldPathMap(value map[string]interface{}, fieldPath string) (refle
 // to query the dispatcher for all (unique) instances in this collection that have been modified
 // at all since `time`.
 func (t *Txn) ModifiedSince(time int64) (ids []core.InstanceID, err error) {
-	txn, err := t.collection.db.datastore.NewTransactionExtended(true)
+	txn, err := t.collection.db.datastore.NewTransactionExtended(context.Background(), true)
 	if err != nil {
 		return nil, err
 	}
-	defer txn.Discard()
+	defer txn.Discard(context.Background())
 
 	timestr := strconv.FormatInt(time, 10)
-	res, err := txn.QueryExtended(dse.QueryExt{
+	res, err := txn.QueryExtended(context.Background(), dse.QueryExt{
 		Query: query.Query{
 			Prefix: dsDispatcherPrefix.String(),
 			Filters: []query.Filter{

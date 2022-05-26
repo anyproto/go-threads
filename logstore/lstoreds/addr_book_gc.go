@@ -85,7 +85,7 @@ func (gc *dsAddrBookGc) purgeStore() {
 		log.Warnf("failed while creating batch to purge GC entries: %v", err)
 	}
 
-	results, err := gc.ab.ds.Query(purgeStoreQuery)
+	results, err := gc.ab.ds.Query(context.Background(), purgeStoreQuery)
 	if err != nil {
 		log.Warnf("failed while opening iterator: %v", err)
 		return
@@ -112,7 +112,7 @@ func (gc *dsAddrBookGc) purgeStore() {
 		gc.ab.cache.Remove(id)
 	}
 
-	if err = batch.Commit(); err != nil {
+	if err = batch.Commit(context.Background()); err != nil {
 		log.Warnf("failed to commit GC purge batch: %v", err)
 	}
 }

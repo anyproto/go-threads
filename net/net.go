@@ -1415,7 +1415,7 @@ func (n *net) loadRecords(
 }
 
 func (n *net) isKnown(rec cid.Cid) (bool, error) {
-	return n.bstore.Has(rec)
+	return n.bstore.Has(context.Background(), rec)
 }
 
 func (n *net) currentHead(tid thread.ID, lid peer.ID) (thread.Head, error) {

@@ -1,6 +1,7 @@
 package lstoreds
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/gogo/protobuf/proto"
@@ -31,7 +32,7 @@ func NewSyncBook(ds ds.TxnDatastore) core.SyncBook {
 func (sb dsSyncBook) DumpSync() (core.DumpSyncBook, error) {
 	var dump = core.DumpSyncBook{Data: make(map[peer.ID]map[uint64]net.SyncStatus)}
 
-	results, err := sb.ds.Query(query.Query{Prefix: sbBase.String()})
+	results, err := sb.ds.Query(context.Background(), query.Query{Prefix: sbBase.String()})
 	if err != nil {
 		return dump, err
 	}
@@ -67,11 +68,11 @@ func (sb dsSyncBook) RestoreSync(dump core.DumpSyncBook) error {
 		return core.ErrEmptyDump
 	}
 
-	txn, err := sb.ds.NewTransaction(false)
+	txn, err := sb.ds.NewTransaction(context.Background(), false)
 	if err != nil {
 		return fmt.Errorf("error when creating txn in datastore: %w", err)
 	}
-	defer txn.Discard()
+	defer txn.Discard(context.Background())
 
 	for pid, peerSync := range dump.Data {
 		var (
@@ -95,12 +96,12 @@ func (sb dsSyncBook) RestoreSync(dump core.DumpSyncBook) error {
 		if err != nil {
 			return fmt.Errorf("error when marshaling syncbookrecord proto for %v: %w", key, err)
 		}
-		if err = txn.Put(key, data); err != nil {
+		if err = txn.Put(context.Background(), key, data); err != nil {
 			return fmt.Errorf("error when saving new syncbook record in datastore for %v: %v", key, err)
 		}
 	}
 
-	return txn.Commit()
+	return txn.Commit(context.Background())
 }
 
 func encodeSyncState(s net.SyncState) uint32 {

@@ -6,6 +6,7 @@ package db
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -143,7 +144,7 @@ func (c *Collection) saveIndexes() error {
 	if err != nil {
 		return err
 	}
-	return c.db.datastore.Put(dsIndexes.ChildString(c.name), ib)
+	return c.db.datastore.Put(context.Background(), dsIndexes.ChildString(c.name), ib)
 }
 
 // indexAdd adds an item to the index.
@@ -180,7 +181,7 @@ func (c *Collection) indexUpdate(field string, index Index, tx ds.Txn, key ds.Ke
 	}
 
 	indexKey := indexPrefix.Child(c.baseKey()).ChildString(field).ChildString(valueKey.String()[1:])
-	data, err := tx.Get(indexKey)
+	data, err := tx.Get(context.Background(), indexKey)
 	if err != nil && err != ds.ErrNotFound {
 		return err
 	}
@@ -203,13 +204,13 @@ func (c *Collection) indexUpdate(field string, index Index, tx ds.Txn, key ds.Ke
 		indexValue.add(key)
 	}
 	if len(indexValue) == 0 {
-		return tx.Delete(indexKey)
+		return tx.Delete(context.Background(), indexKey)
 	}
 	val, err := DefaultEncode(indexValue)
 	if err != nil {
 		return err
 	}
-	return tx.Put(indexKey, val)
+	return tx.Put(context.Background(), indexKey, val)
 }
 
 // getIndexValue returns the result of a field search on input.
@@ -305,7 +306,7 @@ func newIterator(txn dse.TxnExt, baseKey ds.Key, q *Query) (*iterator, error) {
 	if q.Seek != "" {
 		dsq.SeekPrefix = prefix.Child(ds.NewKey(string(q.Seek))).String()
 	}
-	iter, err := txn.QueryExtended(dsq)
+	iter, err := txn.QueryExtended(context.Background(), dsq)
 	if err != nil {
 		return nil, err
 	}
@@ -416,7 +417,7 @@ func (i *iterator) NextSync() (MarshaledResult, bool) {
 	key := i.keyCache[0]
 	i.keyCache = i.keyCache[1:]
 
-	value, err := i.txn.Get(key)
+	value, err := i.txn.Get(context.Background(), key)
 	if err != nil {
 		return MarshaledResult{
 			Result: query.Result{
