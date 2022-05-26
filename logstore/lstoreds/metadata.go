@@ -2,6 +2,7 @@ package lstoreds
 
 import (
 	"bytes"
+	"context"
 	"encoding/gob"
 	"fmt"
 
@@ -101,7 +102,7 @@ func keyMeta(t thread.ID, k string) ds.Key {
 
 func (m *dsThreadMetadata) getValue(t thread.ID, key string, res interface{}) error {
 	k := keyMeta(t, key)
-	v, err := m.ds.Get(k)
+	v, err := m.ds.Get(context.Background(), k)
 	if err == ds.ErrNotFound {
 		return err
 	}
@@ -122,7 +123,7 @@ func (m *dsThreadMetadata) setValue(t thread.ID, key string, val interface{}) er
 	if err := gob.NewEncoder(&buf).Encode(val); err != nil {
 		return fmt.Errorf("error when marshaling value: %w", err)
 	}
-	if err := m.ds.Put(k, buf.Bytes()); err != nil {
+	if err := m.ds.Put(context.Background(), k, buf.Bytes()); err != nil {
 		return fmt.Errorf("error when saving marshaled value in datastore: %w", err)
 	}
 	return nil
@@ -144,7 +145,7 @@ func (m *dsThreadMetadata) DumpMeta() (core.DumpMetadata, error) {
 		dec  = gob.NewDecoder(&buff)
 	)
 
-	results, err := m.ds.Query(query.Query{Prefix: tmetaBase.String()})
+	results, err := m.ds.Query(context.Background(), query.Query{Prefix: tmetaBase.String()})
 	if err != nil {
 		return dump, err
 	}
@@ -250,14 +251,14 @@ func (m *dsThreadMetadata) RestoreMeta(dump core.DumpMetadata) error {
 }
 
 func (m *dsThreadMetadata) clearKeys(prefix string) error {
-	results, err := m.ds.Query(query.Query{Prefix: prefix, KeysOnly: true})
+	results, err := m.ds.Query(context.Background(), query.Query{Prefix: prefix, KeysOnly: true})
 	if err != nil {
 		return err
 	}
 	defer results.Close()
 
 	for result := range results.Next() {
-		if err := m.ds.Delete(ds.NewKey(result.Key)); err != nil {
+		if err := m.ds.Delete(context.Background(), ds.NewKey(result.Key)); err != nil {
 			return fmt.Errorf("error when clearing key: %w", err)
 		}
 	}

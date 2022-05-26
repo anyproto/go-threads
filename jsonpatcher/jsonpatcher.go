@@ -2,6 +2,7 @@ package jsonpatcher
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -117,11 +118,11 @@ func (jp *jsonPatcher) Reduce(
 	baseKey ds.Key,
 	indexFunc core.IndexFunc,
 ) ([]core.ReduceAction, error) {
-	txn, err := store.NewTransaction(false)
+	txn, err := store.NewTransaction(context.Background(), false)
 	if err != nil {
 		return nil, err
 	}
-	defer txn.Discard()
+	defer txn.Discard(context.Background())
 
 	sort.Slice(events, func(i, j int) bool {
 		ei, oki := events[i].(patchEvent)
@@ -143,7 +144,7 @@ func (jp *jsonPatcher) Reduce(
 		key := baseKey.ChildString(e.Collection()).ChildString(e.InstanceID().String())
 		switch je.Patch.Type {
 		case create:
-			exist, err := txn.Has(key)
+			exist, err := txn.Has(context.Background(), key)
 			if err != nil {
 				return nil, err
 			}
@@ -151,7 +152,7 @@ func (jp *jsonPatcher) Reduce(
 				log.Debug("can't create already existing record for %s in %s; skip it", e.InstanceID().String(), e.Collection())
 				continue
 			}
-			if err := txn.Put(key, je.Patch.JSONPatch); err != nil {
+			if err := txn.Put(context.Background(), key, je.Patch.JSONPatch); err != nil {
 				return nil, fmt.Errorf("error when reducing create event: %w", err)
 			}
 			if err := indexFunc(e.Collection(), key, nil, je.Patch.JSONPatch, txn); err != nil {
@@ -160,7 +161,7 @@ func (jp *jsonPatcher) Reduce(
 			actions[i] = core.ReduceAction{Type: core.Create, Collection: e.Collection(), InstanceID: e.InstanceID()}
 			log.Debug("\tcreate operation applied")
 		case save:
-			value, err := txn.Get(key)
+			value, err := txn.Get(context.Background(), key)
 			if errors.Is(err, ds.ErrNotFound) {
 				value = []byte("{}")
 			} else if err != nil {
@@ -170,7 +171,7 @@ func (jp *jsonPatcher) Reduce(
 			if err != nil {
 				return nil, fmt.Errorf("error when reducing save event: %w", err)
 			}
-			if err = txn.Put(key, patchedValue); err != nil {
+			if err = txn.Put(context.Background(), key, patchedValue); err != nil {
 				return nil, err
 			}
 			if err := indexFunc(e.Collection(), key, value, patchedValue, txn); err != nil {
@@ -179,13 +180,13 @@ func (jp *jsonPatcher) Reduce(
 			actions[i] = core.ReduceAction{Type: core.Save, Collection: e.Collection(), InstanceID: e.InstanceID()}
 			log.Debug("\tsave operation applied")
 		case del:
-			value, err := txn.Get(key)
+			value, err := txn.Get(context.Background(), key)
 			actions[i] = core.ReduceAction{Type: core.Delete, Collection: e.Collection(), InstanceID: e.InstanceID()}
 			if err != nil {
 				log.With("instance id", e.InstanceID().String()).
 					Errorf("failed to delete record: %v", err)
 				if len(jp.objectsToDeleteKey.String()) > 0 {
-					err = txn.Put(jp.objectsToDeleteKey.ChildString(e.InstanceID().String()), nil)
+					err = txn.Put(context.Background(), jp.objectsToDeleteKey.ChildString(e.InstanceID().String()), nil)
 					if err != nil {
 						log.With("instance id", e.InstanceID().String()).
 							Errorf("failed to put deleted key for record: %v", err)
@@ -193,7 +194,7 @@ func (jp *jsonPatcher) Reduce(
 				}
 				continue
 			}
-			if err := txn.Delete(key); err != nil {
+			if err := txn.Delete(context.Background(), key); err != nil {
 				return nil, err
 			}
 			if err := indexFunc(e.Collection(), key, value, nil, txn); err != nil {
@@ -204,7 +205,7 @@ func (jp *jsonPatcher) Reduce(
 			return nil, errUnknownOperation
 		}
 	}
-	if err := txn.Commit(); err != nil {
+	if err := txn.Commit(context.Background()); err != nil {
 		return nil, err
 	}
 

@@ -1,6 +1,7 @@
 package lstoreds
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -49,14 +50,14 @@ func (hb *dsHeadBook) AddHead(t thread.ID, p peer.ID, head thread.Head) error {
 
 // AddHeads adds multiple heads to a log.
 func (hb *dsHeadBook) AddHeads(t thread.ID, p peer.ID, heads []thread.Head) error {
-	txn, err := hb.ds.NewTransaction(false)
+	txn, err := hb.ds.NewTransaction(context.Background(), false)
 	if err != nil {
 		return fmt.Errorf("error when creating txn in datastore: %w", err)
 	}
-	defer txn.Discard()
+	defer txn.Discard(context.Background())
 	key := dsLogKey(t, p, hbBase)
 	hr := pb.HeadBookRecord{}
-	v, err := txn.Get(key)
+	v, err := txn.Get(context.Background(), key)
 	if err == nil {
 		if err := proto.Unmarshal(v, &hr); err != nil {
 			return fmt.Errorf("error unmarshaling headbookrecord proto: %w", err)
@@ -82,12 +83,12 @@ func (hb *dsHeadBook) AddHeads(t thread.ID, p peer.ID, heads []thread.Head) erro
 	}
 	if data, err := proto.Marshal(&hr); err != nil {
 		return fmt.Errorf("error when marshaling headbookrecord proto for %v: %w", key, err)
-	} else if err = txn.Put(key, data); err != nil {
+	} else if err = txn.Put(context.Background(), key, data); err != nil {
 		return fmt.Errorf("error when saving new head record in datastore for %v: %v", key, err)
 	} else if err := hb.invalidateEdge(txn, t); err != nil {
 		return fmt.Errorf("edge invalidation failed for thread %v: %w", t, err)
 	}
-	return txn.Commit()
+	return txn.Commit(context.Background())
 }
 
 func (hb *dsHeadBook) SetHead(t thread.ID, p peer.ID, c thread.Head) error {
@@ -95,11 +96,11 @@ func (hb *dsHeadBook) SetHead(t thread.ID, p peer.ID, c thread.Head) error {
 }
 
 func (hb *dsHeadBook) SetHeads(t thread.ID, p peer.ID, heads []thread.Head) error {
-	txn, err := hb.ds.NewTransaction(false)
+	txn, err := hb.ds.NewTransaction(context.Background(), false)
 	if err != nil {
 		return fmt.Errorf("error when creating txn in datastore: %w", err)
 	}
-	defer txn.Discard()
+	defer txn.Discard(context.Background())
 
 	var (
 		hr  pb.HeadBookRecord
@@ -120,17 +121,17 @@ func (hb *dsHeadBook) SetHeads(t thread.ID, p peer.ID, heads []thread.Head) erro
 
 	if data, err := proto.Marshal(&hr); err != nil {
 		return fmt.Errorf("error when marshaling headbookrecord proto for %v: %w", key, err)
-	} else if err = txn.Put(key, data); err != nil {
+	} else if err = txn.Put(context.Background(), key, data); err != nil {
 		return fmt.Errorf("error when saving new head record in datastore for %v: %w", key, err)
 	} else if err := hb.invalidateEdge(txn, t); err != nil {
 		return fmt.Errorf("edge invalidation failed for thread %v: %w", t, err)
 	}
-	return txn.Commit()
+	return txn.Commit(context.Background())
 }
 
 func (hb *dsHeadBook) Heads(t thread.ID, p peer.ID) ([]thread.Head, error) {
 	key := dsLogKey(t, p, hbBase)
-	v, err := hb.ds.Get(key)
+	v, err := hb.ds.Get(context.Background(), key)
 	if err == ds.ErrNotFound {
 		return nil, nil
 	}
@@ -152,18 +153,18 @@ func (hb *dsHeadBook) Heads(t thread.ID, p peer.ID) ([]thread.Head, error) {
 }
 
 func (hb *dsHeadBook) ClearHeads(t thread.ID, p peer.ID) error {
-	txn, err := hb.ds.NewTransaction(false)
+	txn, err := hb.ds.NewTransaction(context.Background(), false)
 	if err != nil {
 		return fmt.Errorf("error when creating txn in datastore: %w", err)
 	}
-	defer txn.Discard()
+	defer txn.Discard(context.Background())
 	var key = dsLogKey(t, p, hbBase)
-	if err := txn.Delete(key); err != nil {
+	if err := txn.Delete(context.Background(), key); err != nil {
 		return fmt.Errorf("error when deleting heads from %s", key)
 	} else if err := hb.invalidateEdge(txn, t); err != nil {
 		return fmt.Errorf("edge invalidation failed for thread %v: %w", t, err)
 	}
-	return txn.Commit()
+	return txn.Commit(context.Background())
 }
 
 func (hb *dsHeadBook) HeadsEdge(tid thread.ID) (uint64, error) {
@@ -183,20 +184,20 @@ func (hb *dsHeadBook) HeadsEdge(tid thread.ID) (uint64, error) {
 }
 
 func (hb *dsHeadBook) getEdge(tid thread.ID, key ds.Key) (uint64, error) {
-	txn, err := hb.ds.NewTransaction(false)
+	txn, err := hb.ds.NewTransaction(context.Background(), false)
 	if err != nil {
 		return 0, fmt.Errorf("error when creating txn in datastore: %w", err)
 	}
-	defer txn.Discard()
+	defer txn.Discard(context.Background())
 
-	if v, err := txn.Get(key); err == nil {
+	if v, err := txn.Get(context.Background(), key); err == nil {
 		return binary.BigEndian.Uint64(v), nil
 	} else if err != ds.ErrNotFound {
 		return 0, err
 	}
 
 	// edge not evaluated/invalidated, let's compute it
-	result, err := txn.Query(query.Query{Prefix: dsThreadKey(tid, hbBase).String(), KeysOnly: false})
+	result, err := txn.Query(context.Background(), query.Query{Prefix: dsThreadKey(tid, hbBase).String(), KeysOnly: false})
 	if err != nil {
 		return 0, err
 	}
@@ -222,15 +223,15 @@ func (hb *dsHeadBook) getEdge(tid thread.ID, key ds.Key) (uint64, error) {
 	)
 
 	binary.BigEndian.PutUint64(buff[:], edge)
-	if err := txn.Put(key, buff[:]); err != nil {
+	if err := txn.Put(context.Background(), key, buff[:]); err != nil {
 		return 0, err
 	}
-	return edge, txn.Commit()
+	return edge, txn.Commit(context.Background())
 }
 
 func (hb *dsHeadBook) invalidateEdge(txn ds.Txn, tid thread.ID) error {
 	var key = dsThreadKey(tid, hbEdge)
-	return txn.Delete(key)
+	return txn.Delete(context.Background(), key)
 }
 
 // Dump entire headbook into the tree-structure.
@@ -275,7 +276,7 @@ func (hb *dsHeadBook) RestoreHeads(dump core.DumpHeadBook) error {
 
 func (hb *dsHeadBook) traverse(withHeads bool) (map[thread.ID]map[peer.ID][]thread.Head, error) {
 	var data = make(map[thread.ID]map[peer.ID][]thread.Head)
-	result, err := hb.ds.Query(query.Query{Prefix: hbBase.String(), KeysOnly: !withHeads})
+	result, err := hb.ds.Query(context.Background(), query.Query{Prefix: hbBase.String(), KeysOnly: !withHeads})
 	if err != nil {
 		return nil, err
 	}

@@ -195,7 +195,7 @@ func (ab *DsAddrBook) ClearAddrs(t thread.ID, p peer.ID) error {
 	ab.cache.Remove(genCacheKey(t, p))
 
 	key := genDSKey(t, p)
-	if err := ab.ds.Delete(key); err != nil {
+	if err := ab.ds.Delete(context.Background(), key); err != nil {
 		return fmt.Errorf("failed to clear addresses for log %s: %w", p.Pretty(), err)
 	} else if err := ab.invalidateEdge(t); err != nil {
 		return fmt.Errorf("edge invalidation failed for thread %v: %w", t, err)
@@ -225,14 +225,14 @@ func (ab *DsAddrBook) ThreadsFromAddrs() (thread.IDSlice, error) {
 
 func (ab *DsAddrBook) AddrsEdge(t thread.ID) (uint64, error) {
 	var key = dsThreadKey(t, logBookEdge)
-	if v, err := ab.ds.Get(key); err == nil {
+	if v, err := ab.ds.Get(context.Background(), key); err == nil {
 		return binary.BigEndian.Uint64(v), nil
 	} else if err != ds.ErrNotFound {
 		return 0, err
 	}
 
 	// edge not evaluated/invalidated, let's compute it
-	result, err := ab.ds.Query(query.Query{Prefix: dsThreadKey(t, logBookBase).String(), KeysOnly: false})
+	result, err := ab.ds.Query(context.Background(), query.Query{Prefix: dsThreadKey(t, logBookBase).String(), KeysOnly: false})
 	if err != nil {
 		return 0, err
 	}
@@ -266,12 +266,12 @@ func (ab *DsAddrBook) AddrsEdge(t thread.ID) (uint64, error) {
 		edge = util.ComputeAddrsEdge(as)
 	)
 	binary.BigEndian.PutUint64(buff[:], edge)
-	return edge, ab.ds.Put(key, buff[:])
+	return edge, ab.ds.Put(context.Background(), key, buff[:])
 }
 
 func (ab *DsAddrBook) invalidateEdge(tid thread.ID) error {
 	var key = dsThreadKey(tid, logBookEdge)
-	return ab.ds.Delete(key)
+	return ab.ds.Delete(context.Background(), key)
 }
 
 // loadRecord is a read-through fetch. It fetches a record from cache, falling back to the
@@ -295,7 +295,7 @@ func (ab *DsAddrBook) loadRecord(t thread.ID, p peer.ID, cache bool, update bool
 
 	pr = &addrsRecord{AddrBookRecord: &pb.AddrBookRecord{}}
 	key := genDSKey(t, p)
-	data, err := ab.ds.Get(key)
+	data, err := ab.ds.Get(context.Background(), key)
 	switch err {
 	case ds.ErrNotFound:
 		err = nil
@@ -375,7 +375,7 @@ func (r *addrsRecord) clean() (chgd bool) {
 func (r *addrsRecord) flush(write ds.Write) (err error) {
 	key := genDSKey(r.ThreadID.ID, r.PeerID.ID)
 	if len(r.Addrs) == 0 {
-		if err = write.Delete(key); err == nil {
+		if err = write.Delete(context.Background(), key); err == nil {
 			r.dirty = false
 		}
 		return err
@@ -385,7 +385,7 @@ func (r *addrsRecord) flush(write ds.Write) (err error) {
 	if err != nil {
 		return err
 	}
-	if err = write.Put(key, data); err != nil {
+	if err = write.Put(context.Background(), key, data); err != nil {
 		return err
 	}
 	// write succeeded; record is no longer dirty.
@@ -597,7 +597,7 @@ func (ab *DsAddrBook) RestoreAddrs(dump logstore.DumpAddrBook) error {
 
 func (ab *DsAddrBook) traverse(withAddrs bool) (map[thread.ID]map[peer.ID]*pb.AddrBookRecord, error) {
 	var data = make(map[thread.ID]map[peer.ID]*pb.AddrBookRecord)
-	result, err := ab.ds.Query(query.Query{Prefix: logBookBase.String(), KeysOnly: !withAddrs})
+	result, err := ab.ds.Query(context.Background(), query.Query{Prefix: logBookBase.String(), KeysOnly: !withAddrs})
 	if err != nil {
 		return nil, err
 	}

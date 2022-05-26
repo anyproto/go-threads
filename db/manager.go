@@ -59,7 +59,7 @@ func NewManager(store kt.TxnDatastoreExtended, network app.Net, opts ...NewOptio
 		dbs:     make(map[thread.ID]*DB),
 	}
 
-	results, err := store.Query(query.Query{
+	results, err := store.Query(context.Background(), query.Query{
 		Prefix:   dsManagerBaseKey.String(),
 		KeysOnly: true,
 	})
@@ -288,13 +288,13 @@ func (m *Manager) DeleteDB(ctx context.Context, id thread.ID, opts ...ManagedOpt
 func (m *Manager) deleteThreadNamespace(id thread.ID) error {
 	pre := dsManagerBaseKey.ChildString(id.String())
 	q := query.Query{Prefix: pre.String(), KeysOnly: true}
-	results, err := m.store.Query(q)
+	results, err := m.store.Query(context.Background(), q)
 	if err != nil {
 		return err
 	}
 	defer results.Close()
 	for result := range results.Next() {
-		if err := m.store.Delete(ds.NewKey(result.Key)); err != nil {
+		if err := m.store.Delete(context.Background(), ds.NewKey(result.Key)); err != nil {
 			return err
 		}
 	}

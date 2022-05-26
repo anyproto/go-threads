@@ -8,7 +8,7 @@ This is a `go-datastore` backed implementation of [`go-threads/core/logstore`](h
 * KeyBook
 
 For testing, two `go-datastore` implementation are table-tested:
-* [badger](github.com/ipfs/go-ds-badger)
+* [badger](github.com/textileio/go-ds-badger)
 * [leveldb](github.com/ipfs/go-ds-leveldb)
 
 Tests leverage the `/test` suites used also for in-memory implementation. 

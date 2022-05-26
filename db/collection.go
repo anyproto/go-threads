@@ -330,7 +330,7 @@ func (c *Collection) validWrite(identity thread.PubKey, e core.Event) error {
 		return fmt.Errorf("parsing event in validate write: %v", err)
 	}
 	var inv goja.Value
-	val, err := c.db.datastore.Get(baseKey.ChildString(c.name).ChildString(e.InstanceID().String()))
+	val, err := c.db.datastore.Get(context.Background(), baseKey.ChildString(c.name).ChildString(e.InstanceID().String()))
 	if err != nil && !errors.Is(err, ds.ErrNotFound) {
 		return err
 	}
@@ -425,7 +425,7 @@ func (t *Txn) Create(new ...[]byte) ([]core.InstanceID, error) {
 
 		results[i] = id
 		key := baseKey.ChildString(t.collection.name).ChildString(id.String())
-		exists, err := t.collection.db.datastore.Has(key)
+		exists, err := t.collection.db.datastore.Has(context.Background(), key)
 		if err != nil {
 			return nil, err
 		}
@@ -513,7 +513,7 @@ func (t *Txn) createSaveActions(identity thread.PubKey, updated ...[]byte) ([]co
 			return nil, err
 		}
 		key := baseKey.ChildString(t.collection.name).ChildString(id.String())
-		previous, err := t.collection.db.datastore.Get(key)
+		previous, err := t.collection.db.datastore.Get(context.Background(), key)
 		if err == ds.ErrNotFound {
 			// Default to an empty doc, downstream reducer will take care of patching, etc
 			previous = []byte("{}")
@@ -545,7 +545,7 @@ func (t *Txn) Delete(ids ...core.InstanceID) error {
 			return ErrReadonlyTx
 		}
 		key := baseKey.ChildString(t.collection.name).ChildString(ids[i].String())
-		exists, err := t.collection.db.datastore.Has(key)
+		exists, err := t.collection.db.datastore.Has(context.Background(), key)
 		if err != nil {
 			return err
 		}
@@ -576,7 +576,7 @@ func (t *Txn) Has(ids ...core.InstanceID) (bool, error) {
 	}
 	for i := range ids {
 		key := baseKey.ChildString(t.collection.name).ChildString(ids[i].String())
-		exists, err := t.collection.db.datastore.Has(key)
+		exists, err := t.collection.db.datastore.Has(context.Background(), key)
 		if err != nil {
 			return false, err
 		}
@@ -584,7 +584,7 @@ func (t *Txn) Has(ids ...core.InstanceID) (bool, error) {
 			if t.collection.readFilter == nil {
 				continue
 			}
-			bytes, err := t.collection.db.datastore.Get(key)
+			bytes, err := t.collection.db.datastore.Get(context.Background(), key)
 			if err != nil {
 				return false, err
 			}
@@ -608,7 +608,7 @@ func (t *Txn) FindByID(id core.InstanceID) ([]byte, error) {
 		return nil, err
 	}
 	key := baseKey.ChildString(t.collection.name).ChildString(id.String())
-	bytes, err := t.collection.db.datastore.Get(key)
+	bytes, err := t.collection.db.datastore.Get(context.Background(), key)
 	if errors.Is(err, ds.ErrNotFound) {
 		return nil, ErrInstanceNotFound
 	}

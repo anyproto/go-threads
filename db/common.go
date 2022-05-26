@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"time"
@@ -24,22 +25,22 @@ func NewTxMapDatastore() *TxnMapDatastore {
 	}
 }
 
-func (d *TxnMapDatastore) NewTransaction(_ bool) (ds.Txn, error) {
+func (d *TxnMapDatastore) NewTransaction(ctx context.Context, _ bool) (ds.Txn, error) {
 	d.lock.RLock()
 	defer d.lock.RUnlock()
 	return NewSimpleTx(d), nil
 }
 
-func (d *TxnMapDatastore) NewTransactionExtended(_ bool) (dse.TxnExt, error) {
+func (d *TxnMapDatastore) NewTransactionExtended(ctx context.Context, _ bool) (dse.TxnExt, error) {
 	d.lock.RLock()
 	defer d.lock.RUnlock()
 	return NewSimpleTx(d), nil
 }
 
-func (d *TxnMapDatastore) QueryExtended(q dse.QueryExt) (query.Results, error) {
+func (d *TxnMapDatastore) QueryExtended(ctx context.Context, q dse.QueryExt) (query.Results, error) {
 	d.lock.RLock()
 	defer d.lock.RUnlock()
-	return d.Query(q.Query)
+	return d.Query(ctx, q.Query)
 }
 
 type op struct {
@@ -62,64 +63,64 @@ func NewSimpleTx(store ds.Datastore) dse.TxnExt {
 	}
 }
 
-func (bt *SimpleTx) Query(q query.Query) (query.Results, error) {
+func (bt *SimpleTx) Query(ctx context.Context, q query.Query) (query.Results, error) {
 	bt.lock.RLock()
 	defer bt.lock.RUnlock()
-	return bt.target.Query(q)
+	return bt.target.Query(ctx, q)
 }
 
-func (bt *SimpleTx) QueryExtended(q dse.QueryExt) (query.Results, error) {
+func (bt *SimpleTx) QueryExtended(ctx context.Context, q dse.QueryExt) (query.Results, error) {
 	bt.lock.RLock()
 	defer bt.lock.RUnlock()
-	return bt.target.Query(q.Query)
+	return bt.target.Query(ctx, q.Query)
 }
 
-func (bt *SimpleTx) Get(k ds.Key) ([]byte, error) {
+func (bt *SimpleTx) Get(ctx context.Context, k ds.Key) ([]byte, error) {
 	bt.lock.RLock()
 	defer bt.lock.RUnlock()
-	return bt.target.Get(k)
+	return bt.target.Get(ctx, k)
 }
 
-func (bt *SimpleTx) Has(k ds.Key) (bool, error) {
+func (bt *SimpleTx) Has(ctx context.Context, k ds.Key) (bool, error) {
 	bt.lock.RLock()
 	defer bt.lock.RUnlock()
-	return bt.target.Has(k)
+	return bt.target.Has(ctx, k)
 }
 
-func (bt *SimpleTx) GetSize(k ds.Key) (int, error) {
+func (bt *SimpleTx) GetSize(ctx context.Context, k ds.Key) (int, error) {
 	bt.lock.RLock()
 	defer bt.lock.RUnlock()
-	return bt.target.GetSize(k)
+	return bt.target.GetSize(ctx, k)
 }
 
-func (bt *SimpleTx) Put(key ds.Key, val []byte) error {
+func (bt *SimpleTx) Put(ctx context.Context, key ds.Key, val []byte) error {
 	bt.lock.RLock()
 	defer bt.lock.RUnlock()
 	bt.ops[key] = op{value: val}
 	return nil
 }
 
-func (bt *SimpleTx) Delete(key ds.Key) error {
+func (bt *SimpleTx) Delete(ctx context.Context, key ds.Key) error {
 	bt.lock.RLock()
 	defer bt.lock.RUnlock()
 	bt.ops[key] = op{delete: true}
 	return nil
 }
 
-func (bt *SimpleTx) Discard() {
+func (bt *SimpleTx) Discard(ctx context.Context) {
 	bt.lock.RLock()
 	defer bt.lock.RUnlock()
 }
 
-func (bt *SimpleTx) Commit() error {
+func (bt *SimpleTx) Commit(ctx context.Context) error {
 	bt.lock.RLock()
 	defer bt.lock.RUnlock()
 	var err error
 	for k, op := range bt.ops {
 		if op.delete {
-			err = bt.target.Delete(k)
+			err = bt.target.Delete(ctx, k)
 		} else {
-			err = bt.target.Put(k, op.value)
+			err = bt.target.Put(ctx, k, op.value)
 		}
 		if err != nil {
 			break
