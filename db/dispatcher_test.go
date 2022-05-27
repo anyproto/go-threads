@@ -2,6 +2,7 @@ package db
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"sync"
 	"testing"
@@ -96,7 +97,7 @@ func TestValidStore(t *testing.T) {
 	if store == nil {
 		t.Error("store should not be nil")
 	} else {
-		if ok, _ := store.Has(ds.NewKey("blah")); ok {
+		if ok, _ := store.Has(context.Background(), ds.NewKey("blah")); ok {
 			t.Error("store should be empty")
 		}
 	}

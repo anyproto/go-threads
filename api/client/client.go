@@ -170,7 +170,7 @@ func (c *Client) NewDB(ctx context.Context, dbID thread.ID, opts ...db.NewManage
 	var logKey []byte
 	if args.LogKey != nil {
 		var err error
-		logKey, err = args.LogKey.Bytes()
+		logKey, err = args.LogKey.Raw()
 		if err != nil {
 			return err
 		}
@@ -203,7 +203,7 @@ func (c *Client) NewDBFromAddr(ctx context.Context, dbAddr ma.Multiaddr, dbKey t
 	var logKey []byte
 	if args.LogKey != nil {
 		var err error
-		logKey, err = args.LogKey.Bytes()
+		logKey, err = args.LogKey.Raw()
 		if err != nil {
 			return err
 		}

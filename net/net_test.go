@@ -429,7 +429,6 @@ func makeNetwork(t *testing.T) core.Net {
 	addr := util.MustParseAddr("/ip4/127.0.0.1/tcp/0")
 
 	host, err := libp2p.New(
-		context.Background(),
 		libp2p.ListenAddrs(addr),
 		libp2p.Identity(sk),
 	)

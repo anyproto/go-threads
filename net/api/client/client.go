@@ -339,7 +339,7 @@ func getThreadKeys(args *core.NewThreadOptions) (*pb.Keys, error) {
 	}
 	if args.LogKey != nil {
 		var err error
-		keys.LogKey, err = args.LogKey.Bytes()
+		keys.LogKey, err = args.LogKey.Raw()
 		if err != nil {
 			return nil, err
 		}
@@ -400,7 +400,7 @@ func threadInfoFromProto(reply *pb.ThreadInfoReply) (info thread.Info, err error
 			PubKey:  pk,
 			PrivKey: sk,
 			Addrs:   addrs,
-			Head:    thread.Head{
+			Head: thread.Head{
 				ID:      head,
 				Counter: counter,
 			},

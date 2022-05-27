@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	badger "github.com/textileio/go-ds-badger"
+	mongods "github.com/textileio/go-ds-mongo"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -19,7 +21,6 @@ import (
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-peerstore/pstoreds"
 	ma "github.com/multiformats/go-multiaddr"
-	mongods "github.com/textileio/go-ds-mongo"
 	"github.com/textileio/go-threads/core/app"
 	core "github.com/textileio/go-threads/core/logstore"
 	"github.com/textileio/go-threads/logstore/lstoreds"
@@ -177,7 +178,7 @@ func badgerStore(repoPath string, fin *util.Finalizer) (ds.Batching, error) {
 		return nil, err
 	}
 
-	dstore, err := ipfslite.BadgerDatastore(repoPath)
+	dstore, err := badger.NewDatastore(repoPath, &badger.DefaultOptions)
 	if err != nil {
 		return nil, err
 	}
@@ -199,13 +200,13 @@ func mongoStore(ctx context.Context, uri, db, collection string, fin *util.Final
 func getIPFSHostKey(config NetConfig, store ds.Datastore) (crypto.PrivKey, error) {
 	if len(config.MongoUri) != 0 {
 		k := ds.NewKey("key")
-		bytes, err := store.Get(k)
+		bytes, err := store.Get(context.Background(), k)
 		if errors.Is(err, ds.ErrNotFound) {
 			key, bytes, err := newIPFSHostKey()
 			if err != nil {
 				return nil, err
 			}
-			if err = store.Put(k, bytes); err != nil {
+			if err = store.Put(context.Background(), k, bytes); err != nil {
 				return nil, err
 			}
 			return key, nil
@@ -264,7 +265,7 @@ func setDefaults(config *NetConfig) error {
 	}
 
 	if config.ConnManager == nil {
-		config.ConnManager = connmgr.NewConnManager(100, 400, time.Second*20)
+		config.ConnManager, _ = connmgr.NewConnManager(100, 400, connmgr.WithGracePeriod(time.Second*20))
 	}
 
 	if len(config.LSType) == 0 {
