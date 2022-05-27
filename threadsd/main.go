@@ -119,9 +119,10 @@ func main() {
 	}
 	log.Debugf("debug: %v", *debug)
 
+	cnmgr, err := connmgr.NewConnManager(*connLowWater, *connHighWater, connmgr.WithGracePeriod(*connGracePeriod))
 	opts := []common.NetOption{
 		common.WithNetHostAddr(hostAddr),
-		common.WithConnectionManager(connmgr.NewConnManager(int(*connLowWater), int(*connHighWater), *connGracePeriod)),
+		common.WithConnectionManager(cnmgr),
 		common.WithNetPulling(
 			*netPullingLimit,
 			*netPullingStartAfter,

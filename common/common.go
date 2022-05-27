@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	badger "github.com/textileio/go-ds-badger"
+	mongods "github.com/textileio/go-ds-mongo"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -215,13 +217,13 @@ func mongoStore(ctx context.Context, uri, db, collection string, fin *finalizer.
 func getIPFSHostKey(config NetConfig, store ds.Datastore) (crypto.PrivKey, error) {
 	if len(config.MongoUri) != 0 {
 		k := ds.NewKey("key")
-		bytes, err := store.Get(k)
+		bytes, err := store.Get(context.Background(), k)
 		if errors.Is(err, ds.ErrNotFound) {
 			key, bytes, err := newIPFSHostKey()
 			if err != nil {
 				return nil, err
 			}
-			if err = store.Put(k, bytes); err != nil {
+			if err = store.Put(context.Background(), k, bytes); err != nil {
 				return nil, err
 			}
 			return key, nil
@@ -297,7 +299,7 @@ func setDefaults(config *NetConfig) error {
 		config.HostAddr = addr
 	}
 	if config.ConnManager == nil {
-		config.ConnManager = connmgr.NewConnManager(100, 400, time.Second*20)
+		config.ConnManager, _ = connmgr.NewConnManager(100, 400, connmgr.WithGracePeriod(time.Second*20))
 	}
 	return nil
 }
