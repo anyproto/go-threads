@@ -8,7 +8,6 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/dgraph-io/badger"
 	"github.com/gogo/protobuf/proto"
 	"github.com/ipfs/go-cid"
 	ds "github.com/ipfs/go-datastore"
@@ -23,6 +22,8 @@ import (
 type dsHeadBook struct {
 	ds ds.TxnDatastore
 }
+
+var errConflict = errors.New("Transaction Conflict. Please retry")
 
 var (
 	// Heads are stored in db key pattern:
@@ -175,7 +176,7 @@ func (hb *dsHeadBook) HeadsEdge(tid thread.ID) (uint64, error) {
 		edge, err := hb.getEdge(tid, key)
 		if err == nil {
 			return edge, nil
-		} else if !errors.Is(err, badger.ErrConflict) {
+		} else if err.Error() != errConflict.Error() {
 			return 0, err
 		}
 		time.Sleep(time.Duration(50*attempt+rand.Intn(30)) * time.Millisecond)
