@@ -237,6 +237,7 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 				return
 			}
 
+			startedLog := time.Now()
 			recs, err := s.net.getLocalRecords(ctx, tid, lid, off, lim, counter)
 			if err != nil {
 				atomic.AddInt32(&failures, 1)
@@ -269,7 +270,7 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 			totalRecords += len(prs)
 			mx.Unlock()
 
-			log.With("thread", tid.String()).With("peer", pid.String()).With("request", fmt.Sprintf("%p", req)).With("offset", off.String()).With("counter", counter).With("log", lid.String()).With("head", head).With("records", len(recs)).Debugf("sending records in log to remote peer")
+			log.With("thread", tid.String()).With("peer", pid.String()).With("request", fmt.Sprintf("%p", req)).With("spent", time.Since(startedLog).Milliseconds()).With("offset", off.String()).With("counter", counter).With("log", lid.String()).With("head", head).With("records", len(recs)).Debugf("sending records in log to remote peer")
 		}(req.Body.ThreadID.ID, lg.ID, offset, lg.Head.ID, limit)
 	}
 
