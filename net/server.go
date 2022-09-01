@@ -169,7 +169,7 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 	if err != nil {
 		return nil, err
 	}
-	log.With("thread", req.Body.ThreadID.ID.String()).With("peer", pid.String()).With("logs", len(req.Body.Logs)).Debugf("received get records request from peer")
+	log.With("thread", req.Body.ThreadID.ID.String()).With("request", fmt.Sprintf("%p", req)).With("peer", pid.String()).With("logs", len(req.Body.Logs)).Debugf("received get records request from peer")
 
 	var pbrecs = &pb.GetRecordsReply{}
 	if err := s.checkServiceKey(req.Body.ThreadID.ID, req.Body.ServiceKey); err != nil {
@@ -240,7 +240,7 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 			recs, err := s.net.getLocalRecords(ctx, tid, lid, off, lim, counter)
 			if err != nil {
 				atomic.AddInt32(&failures, 1)
-				log.With("thread", tid.String()).With("log", lid.String()).Errorf("getting local records failed: %v", err)
+				log.With("thread", tid.String()).With("request", fmt.Sprintf("%p", req)).With("log", lid.String()).Errorf("getting local records failed: %v", err)
 			}
 
 			var prs = make([]*pb.Log_Record, 0, len(recs))
@@ -266,14 +266,18 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 				Log:     pblg,
 			})
 			s.net.metrics.NumberOfRecordsSentForLog(len(prs))
-			totalRecords = len(prs)
+			totalRecords += len(prs)
 			mx.Unlock()
 
-			log.With("thread", tid.String()).With("peer", pid.String()).With("offset", off.String()).With("counter", counter).With("log", lid.String()).With("head", head).With("records", len(recs)).Debugf("sending records in log to remote peer")
+			log.With("thread", tid.String()).With("peer", pid.String()).With("request", fmt.Sprintf("%p", req)).With("offset", off.String()).With("counter", counter).With("log", lid.String()).With("head", head).With("records", len(recs)).Debugf("sending records in log to remote peer")
 		}(req.Body.ThreadID.ID, lg.ID, offset, lg.Head.ID, limit)
 	}
 
 	wg.Wait()
+
+	if totalRecords > 100 {
+		log.With("thread", req.Body.ThreadID.ID.String()).With("spent", time.Since(started).Milliseconds()).With("request", fmt.Sprintf("%p", req)).With("total", totalRecords).With("peer", pid.String()).With("logs", len(req.Body.Logs)).Debugf("get records request from peer finished")
+	}
 
 	s.net.metrics.NumberOfRecordsSentTotal(totalRecords)
 	if registry := s.net.tStat; registry != nil && failures == 0 {
