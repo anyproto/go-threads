@@ -11,6 +11,7 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/gogo/status"
 	"github.com/libp2p/go-libp2p-core/crypto"
+	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
 	pstore "github.com/libp2p/go-libp2p-core/peerstore"
 	gostream "github.com/libp2p/go-libp2p-gostream"
@@ -659,6 +660,7 @@ func (s *server) getLibp2pDialer() grpc.DialOption {
 			return nil, fmt.Errorf("grpc tried to dial non peerID: %w", err)
 		}
 
+		ctx = network.WithUseTransient(ctx, "grpc")
 		conn, err := gostream.Dial(ctx, s.net.host, id, thread.Protocol)
 		if err != nil {
 			return nil, fmt.Errorf("gostream dial failed: %w", err)
