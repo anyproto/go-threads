@@ -6,7 +6,7 @@ import (
 	"sort"
 	"testing"
 
-	pstore "github.com/libp2p/go-libp2p-core/peerstore"
+	pstore "github.com/libp2p/go-libp2p/core/peerstore"
 	core "github.com/textileio/go-threads/core/logstore"
 	"github.com/textileio/go-threads/core/thread"
 )

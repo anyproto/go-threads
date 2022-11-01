@@ -64,11 +64,11 @@ func (d *dispatcher) Dispatch(events []core.Event) error {
 	d.lock.Lock()
 	defer d.lock.Unlock()
 
-	txn, err := d.store.NewTransaction(false)
+	txn, err := d.store.NewTransaction(context.Background(), false)
 	if err != nil {
 		return err
 	}
-	defer txn.Discard()
+	defer txn.Discard(context.Background())
 	for _, event := range events {
 		key, err := getKey(event)
 		if err != nil {
@@ -80,11 +80,11 @@ func (d *dispatcher) Dispatch(events []core.Event) error {
 		if err := e.Encode(event); err != nil {
 			return err
 		}
-		if err := txn.Put(key, b.Bytes()); err != nil {
+		if err := txn.Put(context.Background(), key, b.Bytes()); err != nil {
 			return err
 		}
 	}
-	if err := txn.Commit(); err != nil {
+	if err := txn.Commit(context.Background()); err != nil {
 		return err
 	}
 	// Safe to fire off reducers now that event is persisted
@@ -106,7 +106,7 @@ func (d *dispatcher) Dispatch(events []core.Event) error {
 // Query searches the internal event store and returns a query result.
 // This is a synchronous version of github.com/ipfs/go-datastore's Query method.
 func (d *dispatcher) Query(query query.Query) ([]query.Entry, error) {
-	result, err := d.store.Query(query)
+	result, err := d.store.Query(context.Background(), query)
 	if err != nil {
 		return nil, err
 	}

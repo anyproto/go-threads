@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"reflect"
@@ -305,7 +306,7 @@ func (t *Txn) Find(q *Query) ([][]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error building internal query: %v", err)
 	}
-	defer txn.Discard()
+	defer txn.Discard(context.Background())
 	iter, err := newIterator(txn, t.collection.baseKey(), q)
 	if err != nil {
 		return nil, err
@@ -505,7 +506,7 @@ func (t *Txn) ModifiedSince(time int64) (ids []core.InstanceID, err error) {
 	if err != nil {
 		return nil, err
 	}
-	defer txn.Discard()
+	defer txn.Discard(context.Background())
 
 	timestr := strconv.FormatInt(time, 10)
 	res, err := txn.QueryExtended(dse.QueryExt{

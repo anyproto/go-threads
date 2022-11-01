@@ -1,7 +1,7 @@
 package lstoremem
 
 import (
-	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p/core/peer"
 	core "github.com/textileio/go-threads/core/logstore"
 	"github.com/textileio/go-threads/core/net"
 )

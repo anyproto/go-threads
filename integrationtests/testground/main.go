@@ -25,7 +25,7 @@ import (
 	cid "github.com/ipfs/go-cid"
 	ipldcbor "github.com/ipfs/go-ipld-cbor"
 	logging "github.com/ipfs/go-log/v2"
-	crypto "github.com/libp2p/go-libp2p-core/crypto"
+	crypto "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/multiformats/go-multihash"
 	"github.com/testground/sdk-go/network"
@@ -93,7 +93,7 @@ func main() {
 	}
 	defer m.stopAndPrint()
 	run.InvokeMap(map[string]interface{}{
-		"sync-threads": run.InitializedTestCaseFn(testSyncThreads),
+		"sync-threads":      run.InitializedTestCaseFn(testSyncThreads),
 		"bitswap-sync-race": run.InitializedTestCaseFn(testBitswapSyncRace),
 	})
 }
@@ -110,7 +110,7 @@ func testMultipleRounds(
 	stateName string,
 	env *runtime.RunEnv,
 	ic *run.InitContext,
-	testRound func (context.Context, *runtime.RunEnv, *run.InitContext, string, string) error) (err error) {
+	testRound func(context.Context, *runtime.RunEnv, *run.InitContext, string, string) error) (err error) {
 	msg = func(msg string, args ...interface{}) {
 		env.RecordMessage(msg, args...)
 	}
@@ -123,8 +123,8 @@ func testMultipleRounds(
 		env.RecordFailure(fmt.Errorf(msg, args...))
 	}
 	setup(env, ic)
-	successState := sync.State(stateName+"-success")
-	failState := sync.State(stateName+"-fail")
+	successState := sync.State(stateName + "-success")
+	failState := sync.State(stateName + "-fail")
 	barrierSuccess := ic.SyncClient.MustBarrier(context.Background(), successState, env.TestInstanceCount)
 	barrierFail := ic.SyncClient.MustBarrier(context.Background(), failState, 1)
 	go func() {

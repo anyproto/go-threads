@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/libp2p/go-libp2p-core/crypto"
-	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/peer"
 	ma "github.com/multiformats/go-multiaddr"
+	sym "github.com/textileio/crypto/symmetric"
 	core "github.com/textileio/go-threads/core/logstore"
 	"github.com/textileio/go-threads/core/thread"
-	sym "github.com/textileio/crypto/symmetric"
 )
 
 var _ core.Logstore = (*lstore)(nil)

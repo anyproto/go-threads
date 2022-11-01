@@ -6,7 +6,7 @@ import (
 
 	ds "github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/query"
-	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p/core/peer"
 	core "github.com/textileio/go-threads/core/logstore"
 	"github.com/textileio/go-threads/core/thread"
 	lstore "github.com/textileio/go-threads/logstore"
@@ -75,7 +75,7 @@ func uniqueThreadIds(ds ds.Datastore, prefix ds.Key, extractor func(result query
 		err     error
 	)
 
-	if results, err = ds.Query(q); err != nil {
+	if results, err = ds.Query(context.Background(), q); err != nil {
 		log.Error(err)
 		return nil, err
 	}
@@ -110,7 +110,7 @@ func uniqueLogIds(ds ds.Datastore, prefix ds.Key, extractor func(result query.Re
 		err     error
 	)
 
-	if results, err = ds.Query(q); err != nil {
+	if results, err = ds.Query(context.Background(), q); err != nil {
 		log.Error(err)
 		return nil, err
 	}

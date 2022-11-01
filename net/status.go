@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	lnet "github.com/libp2p/go-libp2p-core/network"
-	"github.com/libp2p/go-libp2p-core/peer"
+	lnet "github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
 	ma "github.com/multiformats/go-multiaddr"
 	core "github.com/textileio/go-threads/core/logstore"
 	tnet "github.com/textileio/go-threads/core/net"

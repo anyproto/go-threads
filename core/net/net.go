@@ -7,8 +7,8 @@ import (
 
 	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-ipld-format"
-	"github.com/libp2p/go-libp2p-core/host"
-	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/peer"
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/textileio/go-threads/core/thread"
 )

@@ -12,14 +12,13 @@ import (
 	"time"
 
 	"github.com/alecthomas/jsonschema"
-	"github.com/dgraph-io/badger/options"
 	ipfslite "github.com/hsanjuan/ipfs-lite"
 	logging "github.com/ipfs/go-log/v2"
-	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p/core/peer"
 	ma "github.com/multiformats/go-multiaddr"
 	mbase "github.com/multiformats/go-multibase"
 	"github.com/phayes/freeport"
-	badger "github.com/textileio/go-ds-badger"
+	badger "github.com/textileio/go-ds-badger3"
 	core "github.com/textileio/go-threads/core/db"
 	"github.com/textileio/go-threads/core/thread"
 	kt "github.com/textileio/go-threads/db/keytransform"
@@ -51,9 +50,7 @@ func NewBadgerDatastore(dirPath, name string, lowMem bool) (kt.TxnDatastoreExten
 		return nil, err
 	}
 	opts := badger.DefaultOptions
-	if lowMem {
-		opts.TableLoadingMode = options.FileIO
-	}
+
 	return badger.NewDatastore(path, &opts)
 }
 

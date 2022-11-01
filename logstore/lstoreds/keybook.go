@@ -1,15 +1,16 @@
 package lstoreds
 
 import (
+	"context"
 	"fmt"
 
 	ds "github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/query"
-	"github.com/libp2p/go-libp2p-core/crypto"
-	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/peer"
+	sym "github.com/textileio/crypto/symmetric"
 	core "github.com/textileio/go-threads/core/logstore"
 	"github.com/textileio/go-threads/core/thread"
-	sym "github.com/textileio/crypto/symmetric"
 	"github.com/whyrusleeping/base32"
 )
 
@@ -43,7 +44,7 @@ func NewKeyBook(store ds.Datastore) (core.KeyBook, error) {
 func (kb *dsKeyBook) PubKey(t thread.ID, p peer.ID) (crypto.PubKey, error) {
 	key := dsLogKey(t, p, kbBase).Child(pubSuffix)
 
-	v, err := kb.ds.Get(key)
+	v, err := kb.ds.Get(context.Background(), key)
 	if err == ds.ErrNotFound {
 		return nil, nil
 	}
@@ -67,12 +68,12 @@ func (kb *dsKeyBook) AddPubKey(t thread.ID, p peer.ID, pk crypto.PubKey) error {
 	if !p.MatchesPublicKey(pk) {
 		return fmt.Errorf("log ID doesn't provided match public key")
 	}
-	val, err := pk.Bytes()
+	val, err := pk.Raw()
 	if err != nil {
 		return fmt.Errorf("error when getting bytes from public key: %w", err)
 	}
 	key := dsLogKey(t, p, kbBase).Child(pubSuffix)
-	if kb.ds.Put(key, val) != nil {
+	if kb.ds.Put(context.Background(), key, val) != nil {
 		return fmt.Errorf("error when putting public key in store: %w", err)
 	}
 	return nil
@@ -82,7 +83,7 @@ func (kb *dsKeyBook) AddPubKey(t thread.ID, p peer.ID, pk crypto.PubKey) error {
 // is stored, returns nil.
 func (kb *dsKeyBook) PrivKey(t thread.ID, p peer.ID) (crypto.PrivKey, error) {
 	key := dsLogKey(t, p, kbBase).Child(privSuffix)
-	v, err := kb.ds.Get(key)
+	v, err := kb.ds.Get(context.Background(), key)
 	if err == ds.ErrNotFound {
 		return nil, nil
 	}
@@ -104,12 +105,12 @@ func (kb *dsKeyBook) AddPrivKey(t thread.ID, p peer.ID, sk crypto.PrivKey) error
 	if !p.MatchesPrivateKey(sk) {
 		return fmt.Errorf("peer ID doesn't match with private key")
 	}
-	skb, err := sk.Bytes()
+	skb, err := sk.Raw()
 	if err != nil {
 		return fmt.Errorf("error when getting private key bytes: %w", err)
 	}
 	key := dsLogKey(t, p, kbBase).Child(privSuffix)
-	if err = kb.ds.Put(key, skb); err != nil {
+	if err = kb.ds.Put(context.Background(), key, skb); err != nil {
 		return fmt.Errorf("error when putting key %v in datastore: %w", key, err)
 	}
 	return nil
@@ -119,7 +120,7 @@ func (kb *dsKeyBook) AddPrivKey(t thread.ID, p peer.ID, sk crypto.PrivKey) error
 // In case it doesn't exist, it will return nil.
 func (kb *dsKeyBook) ReadKey(t thread.ID) (*sym.Key, error) {
 	key := dsThreadKey(t, kbBase).Child(readSuffix)
-	v, err := kb.ds.Get(key)
+	v, err := kb.ds.Get(context.Background(), key)
 	if err == ds.ErrNotFound {
 		return nil, nil
 	}
@@ -135,7 +136,7 @@ func (kb *dsKeyBook) AddReadKey(t thread.ID, rk *sym.Key) error {
 		return fmt.Errorf("read-key is nil")
 	}
 	key := dsThreadKey(t, kbBase).Child(readSuffix)
-	if err := kb.ds.Put(key, rk.Bytes()); err != nil {
+	if err := kb.ds.Put(context.Background(), key, rk.Bytes()); err != nil {
 		return fmt.Errorf("error when adding read-key to datastore: %w", err)
 	}
 	return nil
@@ -146,7 +147,7 @@ func (kb *dsKeyBook) AddReadKey(t thread.ID, rk *sym.Key) error {
 func (kb *dsKeyBook) ServiceKey(t thread.ID) (*sym.Key, error) {
 	key := dsThreadKey(t, kbBase).Child(serviceSuffix)
 
-	v, err := kb.ds.Get(key)
+	v, err := kb.ds.Get(context.Background(), key)
 	if err == ds.ErrNotFound {
 		return nil, nil
 	}
@@ -162,7 +163,7 @@ func (kb *dsKeyBook) AddServiceKey(t thread.ID, fk *sym.Key) error {
 		return fmt.Errorf("service-key is nil")
 	}
 	key := dsThreadKey(t, kbBase).Child(serviceSuffix)
-	if err := kb.ds.Put(key, fk.Bytes()); err != nil {
+	if err := kb.ds.Put(context.Background(), key, fk.Bytes()); err != nil {
 		return fmt.Errorf("error when adding service-key to datastore: %w", err)
 	}
 	return nil
@@ -175,10 +176,10 @@ func (kb *dsKeyBook) ClearKeys(t thread.ID) error {
 
 // ClearLogKeys deletes all keys under a log.
 func (kb *dsKeyBook) ClearLogKeys(t thread.ID, p peer.ID) error {
-	if err := kb.ds.Delete(dsLogKey(t, p, kbBase).Child(privSuffix)); err != nil {
+	if err := kb.ds.Delete(context.Background(), dsLogKey(t, p, kbBase).Child(privSuffix)); err != nil {
 		return fmt.Errorf("error when clearing key: %w", err)
 	}
-	if err := kb.ds.Delete(dsLogKey(t, p, kbBase).Child(pubSuffix)); err != nil {
+	if err := kb.ds.Delete(context.Background(), dsLogKey(t, p, kbBase).Child(pubSuffix)); err != nil {
 		return fmt.Errorf("error when clearing key: %w", err)
 	}
 	return nil
@@ -186,14 +187,14 @@ func (kb *dsKeyBook) ClearLogKeys(t thread.ID, p peer.ID) error {
 
 func (kb *dsKeyBook) clearKeys(prefix ds.Key) error {
 	q := query.Query{Prefix: prefix.String(), KeysOnly: true}
-	results, err := kb.ds.Query(q)
+	results, err := kb.ds.Query(context.Background(), q)
 	if err != nil {
 		return err
 	}
 	defer results.Close()
 
 	for result := range results.Next() {
-		if err := kb.ds.Delete(ds.NewKey(result.Key)); err != nil {
+		if err := kb.ds.Delete(context.Background(), ds.NewKey(result.Key)); err != nil {
 			return fmt.Errorf("error when clearing key: %w", err)
 		}
 	}
@@ -232,7 +233,7 @@ func (kb *dsKeyBook) DumpKeys() (core.DumpKeyBook, error) {
 		sks  = make(map[thread.ID][]byte)
 	)
 
-	result, err := kb.ds.Query(query.Query{Prefix: kbBase.String(), KeysOnly: false})
+	result, err := kb.ds.Query(context.Background(), query.Query{Prefix: kbBase.String(), KeysOnly: false})
 	if err != nil {
 		return dump, err
 	}

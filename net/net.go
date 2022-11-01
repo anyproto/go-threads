@@ -16,11 +16,11 @@ import (
 	bs "github.com/ipfs/go-ipfs-blockstore"
 	format "github.com/ipfs/go-ipld-format"
 	logging "github.com/ipfs/go-log/v2"
-	"github.com/libp2p/go-libp2p-core/crypto"
-	"github.com/libp2p/go-libp2p-core/host"
-	"github.com/libp2p/go-libp2p-core/peer"
-	pstore "github.com/libp2p/go-libp2p-core/peerstore"
 	gostream "github.com/libp2p/go-libp2p-gostream"
+	"github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/peer"
+	pstore "github.com/libp2p/go-libp2p/core/peerstore"
 	ma "github.com/multiformats/go-multiaddr"
 	prom "github.com/prometheus/client_golang/prometheus"
 	sym "github.com/textileio/crypto/symmetric"
@@ -1329,7 +1329,7 @@ func (n *net) loadRecords(
 }
 
 func (n *net) isKnown(rec cid.Cid) (bool, error) {
-	return n.bstore.Has(rec)
+	return n.bstore.Has(context.Background(), rec)
 }
 
 func (n *net) currentHead(tid thread.ID, lid peer.ID) (thread.Head, error) {

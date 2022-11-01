@@ -14,8 +14,8 @@ import (
 	"github.com/ipfs/go-datastore/query"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/namsral/flag"
-	badger "github.com/textileio/go-ds-badger"
-	mongods "github.com/textileio/go-ds-mongo"
+	badger "github.com/textileio/go-ds-badger3"
+	mongods "github.com/textileio/go-threads/mongo"
 )
 
 var log = logging.Logger("dscopy")
@@ -160,7 +160,7 @@ func copyDatastore(
 		log.Infof("connected to mongo destination: %s", uri.Redacted())
 	}
 
-	res, err := from.Query(query.Query{})
+	res, err := from.Query(context.Background(), query.Query{})
 	if err != nil {
 		return fmt.Errorf("querying source: %v", err)
 	}
@@ -181,7 +181,7 @@ func copyDatastore(
 		go func() {
 			defer func() { <-lim }()
 
-			if err := to.Put(ds.NewKey(r.Key), r.Value); err != nil {
+			if err := to.Put(context.Background(), ds.NewKey(r.Key), r.Value); err != nil {
 				lock.Lock()
 				errors = append(errors, fmt.Sprintf("copying %s: %v", r.Key, err))
 				lock.Unlock()
@@ -226,7 +226,7 @@ func copyDatastore(
 				}
 			}
 		} else {
-			file, err = from.Get(ds.NewKey(f))
+			file, err = from.Get(context.Background(), ds.NewKey(f))
 			if err != nil {
 				return fmt.Errorf("getting file %s: %v", f, err)
 			}
@@ -242,7 +242,7 @@ func copyDatastore(
 				return fmt.Errorf("writing file %s: %v", pth, err)
 			}
 		} else {
-			if err := to.Put(ds.NewKey(f), file); err != nil {
+			if err := to.Put(context.Background(), ds.NewKey(f), file); err != nil {
 				return fmt.Errorf("putting file %s: %v", f, err)
 			}
 		}
