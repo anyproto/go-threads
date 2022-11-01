@@ -9,8 +9,7 @@ import (
 
 	"github.com/dgtony/collections/bitset"
 	logging "github.com/ipfs/go-log/v2"
-	"github.com/libp2p/go-libp2p-core/peer"
-	"github.com/libp2p/go-libp2p-peerstore/addr"
+	"github.com/libp2p/go-libp2p/core/peer"
 	ma "github.com/multiformats/go-multiaddr"
 	core "github.com/textileio/go-threads/core/logstore"
 	"github.com/textileio/go-threads/core/thread"
@@ -624,7 +623,7 @@ func (mgr *AddrSubManager) AddrStream(ctx context.Context, p peer.ID, initial []
 	}
 	mgr.mu.Unlock()
 
-	sort.Sort(addr.AddrList(initial))
+	sort.Sort(addrList(initial))
 
 	go func(buffer []ma.Multiaddr) {
 		defer close(out)

@@ -5,12 +5,12 @@ import (
 	"errors"
 	"time"
 
-	"github.com/libp2p/go-libp2p-core/crypto"
-	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/peer"
 	ma "github.com/multiformats/go-multiaddr"
+	sym "github.com/textileio/crypto/symmetric"
 	"github.com/textileio/go-threads/core/net"
 	"github.com/textileio/go-threads/core/thread"
-	sym "github.com/textileio/crypto/symmetric"
 )
 
 // ErrThreadExists indicates a thread already exists.
@@ -149,6 +149,7 @@ type KeyBook interface {
 }
 
 type MigrationVersion string
+
 const (
 	MigrationVersion1 MigrationVersion = "v1"
 )
@@ -160,10 +161,10 @@ type MigrationBook interface {
 
 	// MigrationCompleted returns boolean value for a specific migration
 	MigrationCompleted(MigrationVersion) (bool, error)
-	
+
 	// DumpMigrations packs all stored migrations
 	DumpMigrations() (DumpMigrationBook, error)
-	
+
 	// RestoreMigrations gets all migration statuses from a DumpMigrationBook
 	RestoreMigrations(dump DumpMigrationBook) error
 }

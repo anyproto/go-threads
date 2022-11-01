@@ -13,14 +13,14 @@ import (
 
 	"github.com/improbable-eng/grpc-web/go/grpcweb"
 	logging "github.com/ipfs/go-log/v2"
-	connmgr "github.com/libp2p/go-libp2p-connmgr"
+	connmgr "github.com/libp2p/go-libp2p/p2p/net/connmgr"
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/namsral/flag"
-	mongods "github.com/textileio/go-ds-mongo"
 	"github.com/textileio/go-threads/api"
 	pb "github.com/textileio/go-threads/api/pb"
 	"github.com/textileio/go-threads/common"
 	kt "github.com/textileio/go-threads/db/keytransform"
+	mongods "github.com/textileio/go-threads/mongo"
 	netapi "github.com/textileio/go-threads/net/api"
 	netpb "github.com/textileio/go-threads/net/api/pb"
 	"github.com/textileio/go-threads/util"
@@ -117,12 +117,14 @@ func main() {
 	} else {
 		log.Debugf("badgerLowMem: %v", *badgerLowMem)
 	}
+	manager, err := connmgr.NewConnManager(int(*connLowWater), int(*connHighWater))
+	if err != nil {
+		log.Fatal(err)
+	}
 	log.Debugf("debug: %v", *debug)
-
-	cnmgr, err := connmgr.NewConnManager(*connLowWater, *connHighWater, connmgr.WithGracePeriod(*connGracePeriod))
 	opts := []common.NetOption{
 		common.WithNetHostAddr(hostAddr),
-		common.WithConnectionManager(cnmgr),
+		common.WithConnectionManager(manager),
 		common.WithNetPulling(
 			*netPullingLimit,
 			*netPullingStartAfter,

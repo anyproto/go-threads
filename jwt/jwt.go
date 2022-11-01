@@ -2,7 +2,7 @@ package jwted25519
 
 import (
 	"github.com/golang-jwt/jwt"
-	"github.com/libp2p/go-libp2p-core/crypto"
+	"github.com/libp2p/go-libp2p/core/crypto"
 )
 
 // Implements the Ed25519 signing method.

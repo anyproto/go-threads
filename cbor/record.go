@@ -10,10 +10,10 @@ import (
 	"github.com/ipfs/go-cid"
 	cbornode "github.com/ipfs/go-ipld-cbor"
 	"github.com/ipfs/go-ipld-format"
-	ic "github.com/libp2p/go-libp2p-core/crypto"
+	ic "github.com/libp2p/go-libp2p/core/crypto"
 	mh "github.com/multiformats/go-multihash"
-	"github.com/textileio/go-threads/core/net"
 	"github.com/textileio/crypto"
+	"github.com/textileio/go-threads/core/net"
 	pb "github.com/textileio/go-threads/net/pb"
 )
 

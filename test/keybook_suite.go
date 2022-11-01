@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/libp2p/go-libp2p-core/crypto"
-	"github.com/libp2p/go-libp2p-core/peer"
-	pt "github.com/libp2p/go-libp2p-core/test"
+	"github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/peer"
+	pt "github.com/libp2p/go-libp2p/core/test"
+	sym "github.com/textileio/crypto/symmetric"
 	core "github.com/textileio/go-threads/core/logstore"
 	"github.com/textileio/go-threads/core/thread"
-	sym "github.com/textileio/crypto/symmetric"
 )
 
 var keyBookSuite = map[string]func(kb core.KeyBook) func(*testing.T){

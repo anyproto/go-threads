@@ -14,20 +14,21 @@ import (
 
 	ipfslite "github.com/hsanjuan/ipfs-lite"
 	ds "github.com/ipfs/go-datastore"
-	connmgr "github.com/libp2p/go-libp2p-connmgr"
-	cconnmgr "github.com/libp2p/go-libp2p-core/connmgr"
-	"github.com/libp2p/go-libp2p-core/crypto"
-	"github.com/libp2p/go-libp2p-core/peer"
-	"github.com/libp2p/go-libp2p-peerstore/pstoreds"
+	"github.com/libp2p/go-libp2p"
+	cconnmgr "github.com/libp2p/go-libp2p/core/connmgr"
+	"github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/p2p/host/peerstore/pstoreds"
+	connmgr "github.com/libp2p/go-libp2p/p2p/net/connmgr"
 	ma "github.com/multiformats/go-multiaddr"
-	badger "github.com/textileio/go-ds-badger"
-	mongods "github.com/textileio/go-ds-mongo"
+	badger "github.com/textileio/go-ds-badger3"
 	"github.com/textileio/go-libp2p-pubsub-rpc/finalizer"
 	"github.com/textileio/go-threads/core/app"
 	core "github.com/textileio/go-threads/core/logstore"
 	"github.com/textileio/go-threads/logstore/lstoreds"
 	"github.com/textileio/go-threads/logstore/lstorehybrid"
 	"github.com/textileio/go-threads/logstore/lstoremem"
+	mongods "github.com/textileio/go-threads/mongo"
 	"github.com/textileio/go-threads/net"
 	"google.golang.org/grpc"
 )
@@ -217,13 +218,14 @@ func mongoStore(ctx context.Context, uri, db, collection string, fin *finalizer.
 func getIPFSHostKey(config NetConfig, store ds.Datastore) (crypto.PrivKey, error) {
 	if len(config.MongoUri) != 0 {
 		k := ds.NewKey("key")
-		bytes, err := store.Get(context.Background(), k)
+		var ctx = context.Background()
+		bytes, err := store.Get(ctx, k)
 		if errors.Is(err, ds.ErrNotFound) {
 			key, bytes, err := newIPFSHostKey()
 			if err != nil {
 				return nil, err
 			}
-			if err = store.Put(context.Background(), k, bytes); err != nil {
+			if err = store.Put(ctx, k, bytes); err != nil {
 				return nil, err
 			}
 			return key, nil

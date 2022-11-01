@@ -39,7 +39,7 @@ type txn struct {
 
 var _ dse.TxnExt = (*txn)(nil)
 
-func (d *Datastore) NewTransaction(_ context.Context, readOnly bool) (ds.Txn, error) {
+func (d *Datastore) NewTransaction(ctx context.Context, readOnly bool) (ds.Txn, error) {
 	return d.newTransaction(readOnly)
 }
 
@@ -79,7 +79,7 @@ func (t *txn) Delete(ctx context.Context, key ds.Key) (err error) {
 }
 
 // Get returns the value for given key, transforming the key first.
-func (t *txn) Get(ctx context.Context,key ds.Key) (value []byte, err error) {
+func (t *txn) Get(ctx context.Context, key ds.Key) (value []byte, err error) {
 	return t.Txn.Get(ctx, t.ds.ConvertKey(key))
 }
 

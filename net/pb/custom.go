@@ -5,14 +5,14 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/ipfs/go-cid"
-	"github.com/libp2p/go-libp2p-core/crypto"
-	"github.com/libp2p/go-libp2p-core/peer"
-	pt "github.com/libp2p/go-libp2p-core/test"
+	"github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/peer"
+	pt "github.com/libp2p/go-libp2p/core/test"
 	ma "github.com/multiformats/go-multiaddr"
 	mh "github.com/multiformats/go-multihash"
 	varint "github.com/multiformats/go-varint"
-	"github.com/textileio/go-threads/core/thread"
 	sym "github.com/textileio/crypto/symmetric"
+	"github.com/textileio/go-threads/core/thread"
 )
 
 // customGogoType aggregates the interfaces that custom Gogo types need to implement.
