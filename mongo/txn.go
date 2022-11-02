@@ -34,8 +34,8 @@ func (m *MongoDS) NewTransaction(ctx context.Context, readOnly bool) (datastore.
 	return m.newTransaction(ctx, readOnly)
 }
 
-func (m *MongoDS) NewTransactionExtended(readOnly bool) (dsextensions.TxnExt, error) {
-	return m.newTransaction(context.Background(), readOnly)
+func (m *MongoDS) NewTransactionExtended(ctx context.Context, readOnly bool) (dsextensions.TxnExt, error) {
+	return m.newTransaction(ctx, readOnly)
 }
 
 func (m *MongoDS) newTransaction(ctx context.Context, _ bool) (dsextensions.TxnExt, error) {
@@ -136,7 +136,7 @@ func (t *mongoTxn) Query(ctx context.Context, q query.Query) (query.Results, err
 	return t.m.query(t.ctx, qe)
 }
 
-func (t *mongoTxn) QueryExtended(q dsextensions.QueryExt) (query.Results, error) {
+func (t *mongoTxn) QueryExtended(ctx context.Context, q dsextensions.QueryExt) (query.Results, error) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 	if t.finalized {

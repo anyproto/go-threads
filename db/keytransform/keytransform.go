@@ -43,7 +43,7 @@ func (d *Datastore) NewTransaction(ctx context.Context, readOnly bool) (ds.Txn, 
 	return d.newTransaction(readOnly)
 }
 
-func (d *Datastore) NewTransactionExtended(_ context.Context, readOnly bool) (dse.TxnExt, error) {
+func (d *Datastore) NewTransactionExtended(ctx context.Context, readOnly bool) (dse.TxnExt, error) {
 	return d.newTransaction(readOnly)
 }
 
@@ -57,7 +57,7 @@ func (d *Datastore) newTransaction(readOnly bool) (dse.TxnExt, error) {
 }
 
 func (d *Datastore) QueryExtended(ctx context.Context, q dse.QueryExt) (dsq.Results, error) {
-	return d.child.QueryExtended(context.Background(), q)
+	return d.child.QueryExtended(ctx, q)
 }
 
 func (t *txn) Commit(ctx context.Context) error {
@@ -110,7 +110,7 @@ func (t *txn) Query(ctx context.Context, q dsq.Query) (dsq.Results, error) {
 func (t *txn) QueryExtended(ctx context.Context, q dse.QueryExt) (dsq.Results, error) {
 	nq, cq := t.prepareQuery(q)
 
-	qr, err := t.Txn.QueryExtended(context.Background(), cq)
+	qr, err := t.Txn.QueryExtended(ctx, cq)
 	if err != nil {
 		return nil, err
 	}
