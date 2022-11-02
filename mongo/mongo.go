@@ -142,14 +142,14 @@ func (m *MongoDS) Delete(ctx context.Context, key datastore.Key) error {
 	return m.delete(ctx, key)
 }
 
-func (m *MongoDS) QueryExtended(q dsextensions.QueryExt) (query.Results, error) {
+func (m *MongoDS) QueryExtended(ctx context.Context, q dsextensions.QueryExt) (query.Results, error) {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 	if m.closed {
 		return nil, ErrClosed
 	}
 
-	ctx, cls := context.WithTimeout(context.Background(), m.opTimeout)
+	ctx, cls := context.WithTimeout(ctx, m.opTimeout)
 	defer cls()
 
 	return m.query(ctx, q)

@@ -43,12 +43,12 @@ func (d *Datastore) NewTransaction(ctx context.Context, readOnly bool) (ds.Txn, 
 	return d.newTransaction(readOnly)
 }
 
-func (d *Datastore) NewTransactionExtended(readOnly bool) (dse.TxnExt, error) {
+func (d *Datastore) NewTransactionExtended(ctx context.Context, readOnly bool) (dse.TxnExt, error) {
 	return d.newTransaction(readOnly)
 }
 
 func (d *Datastore) newTransaction(readOnly bool) (dse.TxnExt, error) {
-	t, err := d.child.NewTransactionExtended(readOnly)
+	t, err := d.child.NewTransactionExtended(context.Background(), readOnly)
 	if err != nil {
 		return nil, err
 	}
@@ -56,8 +56,8 @@ func (d *Datastore) newTransaction(readOnly bool) (dse.TxnExt, error) {
 	return &txn{Txn: t, ds: d}, nil
 }
 
-func (d *Datastore) QueryExtended(q dse.QueryExt) (dsq.Results, error) {
-	return d.child.QueryExtended(q)
+func (d *Datastore) QueryExtended(ctx context.Context, q dse.QueryExt) (dsq.Results, error) {
+	return d.child.QueryExtended(ctx, q)
 }
 
 func (t *txn) Commit(ctx context.Context) error {
@@ -107,10 +107,10 @@ func (t *txn) Query(ctx context.Context, q dsq.Query) (dsq.Results, error) {
 }
 
 // QueryExtended implements QueryExtended, inverting keys on the way back out.
-func (t *txn) QueryExtended(q dse.QueryExt) (dsq.Results, error) {
+func (t *txn) QueryExtended(ctx context.Context, q dse.QueryExt) (dsq.Results, error) {
 	nq, cq := t.prepareQuery(q)
 
-	qr, err := t.Txn.QueryExtended(cq)
+	qr, err := t.Txn.QueryExtended(ctx, cq)
 	if err != nil {
 		return nil, err
 	}

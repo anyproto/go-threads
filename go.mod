@@ -4,7 +4,8 @@ go 1.15
 
 require (
 	github.com/alecthomas/jsonschema v0.0.0-20191017121752-4bb6e3fae4f2
-	github.com/dgraph-io/badger/v3 v3.2011.1
+	github.com/anytypeio/go-ds-badger3 v0.2.8-0.20220526091046-7e3bda868243
+	github.com/dgraph-io/badger/v3 v3.2103.3
 	github.com/dgtony/collections v0.1.6
 	github.com/dlclark/regexp2 v1.2.0 // indirect
 	github.com/dop251/goja v0.0.0-20200721192441-a695b0cdd498
@@ -15,8 +16,6 @@ require (
 	github.com/gogo/protobuf v1.3.2
 	github.com/gogo/status v1.1.0
 	github.com/golang-jwt/jwt v3.2.2+incompatible
-	github.com/golang/snappy v0.0.3 // indirect
-	github.com/google/flatbuffers v1.12.1 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware v1.3.0
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/hashicorp/golang-lru v0.5.5-0.20210104140557-80c98217689d
@@ -48,8 +47,7 @@ require (
 	github.com/phayes/freeport v0.0.0-20180830031419-95f893ade6f2
 	github.com/prometheus/client_golang v1.12.1
 	github.com/textileio/crypto v0.0.0-20210928200545-9b5a55171e1b
-	github.com/textileio/go-datastore-extensions v1.0.1
-	github.com/textileio/go-ds-badger3 v0.1.0
+	github.com/textileio/go-datastore-extensions v1.1.0
 	github.com/textileio/go-libp2p-pubsub-rpc v0.0.9
 	github.com/tidwall/gjson v1.10.2
 	github.com/tidwall/sjson v1.2.3
@@ -64,3 +62,5 @@ require (
 	google.golang.org/protobuf v1.28.1
 	nhooyr.io/websocket v1.8.7 // indirect
 )
+
+replace github.com/dgraph-io/badger/v3 => github.com/anytypeio/badger/v3 v3.0.0-20220504124523-ca79ca5ff94d

@@ -31,16 +31,16 @@ func (d *TxnMapDatastore) NewTransaction(ctx context.Context, _ bool) (ds.Txn, e
 	return NewSimpleTx(d), nil
 }
 
-func (d *TxnMapDatastore) NewTransactionExtended(_ bool) (dse.TxnExt, error) {
+func (d *TxnMapDatastore) NewTransactionExtended(ctx context.Context, _ bool) (dse.TxnExt, error) {
 	d.lock.RLock()
 	defer d.lock.RUnlock()
 	return NewSimpleTx(d), nil
 }
 
-func (d *TxnMapDatastore) QueryExtended(q dse.QueryExt) (query.Results, error) {
+func (d *TxnMapDatastore) QueryExtended(ctx context.Context, q dse.QueryExt) (query.Results, error) {
 	d.lock.RLock()
 	defer d.lock.RUnlock()
-	return d.Query(context.Background(), q.Query)
+	return d.Query(ctx, q.Query)
 }
 
 type op struct {
@@ -69,10 +69,10 @@ func (bt *SimpleTx) Query(ctx context.Context, q query.Query) (query.Results, er
 	return bt.target.Query(ctx, q)
 }
 
-func (bt *SimpleTx) QueryExtended(q dse.QueryExt) (query.Results, error) {
+func (bt *SimpleTx) QueryExtended(ctx context.Context, q dse.QueryExt) (query.Results, error) {
 	bt.lock.RLock()
 	defer bt.lock.RUnlock()
-	return bt.target.Query(context.Background(), q.Query)
+	return bt.target.Query(ctx, q.Query)
 }
 
 func (bt *SimpleTx) Get(ctx context.Context, k ds.Key) ([]byte, error) {

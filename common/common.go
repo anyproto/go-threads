@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	badger "github.com/anytypeio/go-ds-badger3"
 	ipfslite "github.com/hsanjuan/ipfs-lite"
 	ds "github.com/ipfs/go-datastore"
 	"github.com/libp2p/go-libp2p"
@@ -19,7 +20,6 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/host/peerstore/pstoreds"
 	connmgr "github.com/libp2p/go-libp2p/p2p/net/connmgr"
 	ma "github.com/multiformats/go-multiaddr"
-	badger "github.com/textileio/go-ds-badger3"
 	"github.com/textileio/go-libp2p-pubsub-rpc/finalizer"
 	"github.com/textileio/go-threads/core/app"
 	core "github.com/textileio/go-threads/core/logstore"
