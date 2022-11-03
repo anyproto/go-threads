@@ -45,7 +45,8 @@ var (
 	// MaxThreadsExchanged is the maximum number of threads for the single edge exchange.
 	MaxThreadsExchanged = 10
 
-	MaxPullLimit = 1000
+	// MaxPullLimit is the maximum page size for pulling records.
+	MaxPullLimit = 10000
 
 	// ExchangeCompressionTimeout is the maximum duration of collecting threads for the exchange edges request.
 	ExchangeCompressionTimeout = PullTimeout / 2
