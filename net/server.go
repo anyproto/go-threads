@@ -195,7 +195,7 @@ func (s *server) GetRecords(ctx context.Context, req *pb.GetRecordsRequest) (*pb
 	}
 	pbrecs.Logs = make([]*pb.GetRecordsReply_LogEntry, 0, len(info.Logs))
 
-	logRecordLimit := MaxPullLimit
+	logRecordLimit := MaxThreadsExchanged
 	if !s.net.useMaxPullLimit {
 		logRecordLimit = MaxPullLimit / len(info.Logs)
 	}
