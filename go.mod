@@ -65,7 +65,6 @@ require (
     google.golang.org/grpc v1.40.0
     google.golang.org/protobuf v1.27.1
     nhooyr.io/websocket v1.8.7 // indirect
-	github.com/anytypeio/go-ds-badger3 v0.3.1-0.20221103102622-3233d4e13cb8
 	github.com/dgraph-io/badger/v3 v3.2103.3
 	github.com/dgtony/collections v0.1.6
 	github.com/dlclark/regexp2 v1.2.0 // indirect
@@ -95,7 +94,6 @@ require (
 	github.com/ipfs/go-merkledag v0.7.0
 	github.com/jbenet/goprocess v0.1.4
 	github.com/libp2p/go-libp2p v0.22.0
-	github.com/libp2p/go-libp2p-core v0.20.1 // indirect
 	github.com/libp2p/go-libp2p-gostream v0.5.0
 	github.com/libp2p/go-libp2p-pubsub v0.8.0
 	github.com/multiformats/go-multiaddr v0.6.0

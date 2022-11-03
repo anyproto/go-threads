@@ -7,11 +7,14 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"github.com/libp2p/go-libp2p/core/event"
+	"github.com/libp2p/go-libp2p/core/network"
 	"io"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/ipfs/go-cid"
 	bs "github.com/ipfs/go-ipfs-blockstore"
 	format "github.com/ipfs/go-ipld-format"
 	logging "github.com/ipfs/go-log/v2"
@@ -28,7 +31,6 @@ import (
 	lstore "github.com/textileio/go-threads/core/logstore"
 	core "github.com/textileio/go-threads/core/net"
 	"github.com/textileio/go-threads/core/thread"
-	sym "github.com/textileio/go-threads/crypto/symmetric"
 	"github.com/textileio/go-threads/metrics"
 	pb "github.com/textileio/go-threads/net/pb"
 	"github.com/textileio/go-threads/net/queue"
@@ -48,6 +50,9 @@ var (
 
 	// QueuePollInterval is the polling interval for the call queue.
 	QueuePollInterval = time.Millisecond * 500
+
+	//between automatic edge exchanges.
+	PullInterval = time.Second * 10
 
 	// EventBusCapacity is the buffer size of local event bus listeners.
 	EventBusCapacity = 1
@@ -194,14 +199,16 @@ func NewNetwork(
 		queueGetRecords:  queue.NewFFQueue(ctx, QueuePollInterval, PullInterval),
 		queuePushRecords: queue.NewSyncQueue(ctx),
 	}
+
+	var err error
 	if conf.SetHeadsMigrated {
-		err = t.store.SetMigrationCompleted(lstore.MigrationVersion1)
+		err = n.store.SetMigrationCompleted(lstore.MigrationVersion1)
 		if err != nil {
 			return nil, fmt.Errorf("failed set migration to version 1 state: %w", err)
 		}
 	}
 
-	go n.migrateHeadsIfNeeded(ctx, ls)
+	go n.migrateHeadsIfNeeded(ctx)
 
 	n.server, err = newServer(n, dialOptions...)
 	if err != nil {
@@ -226,7 +233,6 @@ func NewNetwork(
 		}
 	}()
 
-	n.setMetrics(ctx)
 	if !conf.DisableReachabilityMonitoring {
 		go n.monitorReachability(ctx)
 	}
@@ -276,7 +282,7 @@ func (n *net) countRecords(ctx context.Context, tid thread.ID, rid cid.Cid, offs
 		cancel()
 		if err != nil {
 			log.With("thread id", tid.String()).
-				With("record id", cursor.String).
+				With("record id", cursor.String()).
 				Error("failed to find record")
 			return 0, err
 		}
