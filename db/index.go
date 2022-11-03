@@ -306,7 +306,7 @@ func newIterator(txn dse.TxnExt, baseKey ds.Key, q *Query) (*iterator, error) {
 	if q.Seek != "" {
 		dsq.SeekPrefix = prefix.Child(ds.NewKey(string(q.Seek))).String()
 	}
-	iter, err := txn.QueryExtended(dsq)
+	iter, err := txn.QueryExtended(context.Background(), dsq)
 	if err != nil {
 		return nil, err
 	}

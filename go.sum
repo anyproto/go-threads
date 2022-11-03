@@ -69,8 +69,8 @@ github.com/anmitsu/go-shlex v0.0.0-20161002113705-648efa622239/go.mod h1:2FmKhYU
 github.com/antihax/optional v1.0.0/go.mod h1:uupD/76wgC+ih3iEmQUL+0Ugr19nfwCT1kdvxnR2qWY=
 github.com/anytypeio/badger/v3 v3.0.0-20220504124523-ca79ca5ff94d h1:BkJq6TOVxCjNVYuY6ZXPJn33faN0mAtBJ4Zi/Z+nwcw=
 github.com/anytypeio/badger/v3 v3.0.0-20220504124523-ca79ca5ff94d/go.mod h1:xQric+1qJgLDZKXS8L8HmGf7APAMSUMCj9b2ewGq45M=
-github.com/anytypeio/go-ds-badger3 v0.2.8-0.20220526091046-7e3bda868243 h1:SrQ/Z5/rbITleWW1GWmC6d3jmbVjK7Q25cNgTBsX/TM=
-github.com/anytypeio/go-ds-badger3 v0.2.8-0.20220526091046-7e3bda868243/go.mod h1:RSP+8xIT4mwO39+7XdXAjx4szw2xNFyD+3PEZyaIRrM=
+github.com/anytypeio/go-ds-badger3 v0.3.1-0.20221103102622-3233d4e13cb8 h1:LC9w0M0SbA5VuZeBtUdq+uR4mdjbJhxurNtovmRiOrU=
+github.com/anytypeio/go-ds-badger3 v0.3.1-0.20221103102622-3233d4e13cb8/go.mod h1:R5tqrpzflXnpE1v91BNZrz62AVox66+rWM51LXNoNik=
 github.com/apache/thrift v0.12.0/go.mod h1:cp2SuWMxlEZw2r+iP2GNCdIi4C1qmUzdZFSVb+bacwQ=
 github.com/apache/thrift v0.13.0/go.mod h1:cp2SuWMxlEZw2r+iP2GNCdIi4C1qmUzdZFSVb+bacwQ=
 github.com/armon/circbuf v0.0.0-20150827004946-bbbad097214e/go.mod h1:3U/XgcO3hCbHZ8TKRvWD2dDTCfh9M9ya+I9JpbB7O8o=

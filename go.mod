@@ -4,7 +4,7 @@ go 1.15
 
 require (
 	github.com/alecthomas/jsonschema v0.0.0-20191017121752-4bb6e3fae4f2
-	github.com/anytypeio/go-ds-badger3 v0.2.8-0.20220526091046-7e3bda868243
+	github.com/anytypeio/go-ds-badger3 v0.3.1-0.20221103102622-3233d4e13cb8
 	github.com/dgraph-io/badger/v3 v3.2103.3
 	github.com/dgtony/collections v0.1.6
 	github.com/dlclark/regexp2 v1.2.0 // indirect
