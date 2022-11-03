@@ -8,7 +8,6 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/dgraph-io/badger/v3"
 	"github.com/gogo/protobuf/proto"
 	"github.com/ipfs/go-cid"
 	ds "github.com/ipfs/go-datastore"

@@ -217,7 +217,7 @@ func NewNetwork(
 
 	if conf.SyncTracking {
 		n.connTrack = NewConnTracker(h.Network())
-		if n.tStat, err = NewThreadStatusRegistry(conf.SyncBook, t.connTrack.Track); err != nil {
+		if n.tStat, err = NewThreadStatusRegistry(conf.SyncBook, n.connTrack.Track); err != nil {
 			return nil, fmt.Errorf("thread status registry init failed: %w", err)
 		}
 	}

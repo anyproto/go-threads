@@ -5,8 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	badger "github.com/textileio/go-ds-badger"
-	mongods "github.com/textileio/go-ds-mongo"
 	"io/ioutil"
 	"os"
 	"path/filepath"
