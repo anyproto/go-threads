@@ -109,6 +109,7 @@ require (
 	github.com/prometheus/client_golang v1.12.1
 	github.com/textileio/crypto v0.0.0-20210928200545-9b5a55171e1b
 	github.com/textileio/go-datastore-extensions v1.1.0
+	github.com/textileio/go-ds-badger3 v0.1.0
 	github.com/textileio/go-libp2p-pubsub-rpc v0.0.9
 	github.com/tidwall/gjson v1.10.2
 	github.com/tidwall/sjson v1.2.3
@@ -278,3 +279,5 @@ replace github.com/hsanjuan/ipfs-lite => github.com/anytypeio/ipfs-lite v1.3.1-0
 replace github.com/textileio/go-ds-mongo => github.com/anytypeio/go-ds-mongo v0.1.6-0.20220527140128-ffc76ed22180
 
 replace github.com/dgraph-io/badger/v3 => github.com/anytypeio/badger/v3 v3.0.0-20220504124523-ca79ca5ff94d
+
+replace github.com/textileio/go-ds-badger3 => github.com/anytypeio/go-ds-badger3 v0.3.1-0.20221103102622-3233d4e13cb8

@@ -10,11 +10,11 @@ import (
 	"sync"
 	"time"
 
-	badger "github.com/anytypeio/go-ds-badger3"
 	ds "github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/query"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/namsral/flag"
+	badger "github.com/textileio/go-ds-badger3"
 	mongods "github.com/textileio/go-threads/mongo"
 )
 
