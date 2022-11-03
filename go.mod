@@ -4,7 +4,6 @@ go 1.17
 
 require (
 	github.com/alecthomas/jsonschema v0.0.0-20191017121752-4bb6e3fae4f2
-	github.com/dgraph-io/badger/v3 v3.2103.3
 	github.com/dgtony/collections v0.1.6
 	github.com/dop251/goja v0.0.0-20200721192441-a695b0cdd498
 	github.com/evanphx/json-patch v4.5.0+incompatible
@@ -72,6 +71,7 @@ require (
 	github.com/davidlazar/go-crypto v0.0.0-20200604182044-b73af7476f6c // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.1.0 // indirect
 	github.com/desertbit/timer v0.0.0-20180107155436-c41aec40b27f // indirect
+	github.com/dgraph-io/badger/v3 v3.2103.3 // indirect
 	github.com/dgraph-io/ristretto v0.1.1-0.20220403145359-8e850b710d6d // indirect
 	github.com/dlclark/regexp2 v1.2.0 // indirect
 	github.com/docker/go-units v0.4.0 // indirect
