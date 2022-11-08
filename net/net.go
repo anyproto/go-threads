@@ -198,8 +198,8 @@ func NewNetwork(
 		metrics:          m,
 		useMaxPullLimit:  conf.UseMaxPullLimit,
 		semaphores:       util.NewSemaphorePool(1, m),
-		queueGetLogs:     queue.NewFFQueue(ctx, QueuePollInterval, PullInterval),
-		queueGetRecords:  queue.NewFFQueue(ctx, QueuePollInterval, PullInterval),
+		queueGetLogs:     queue.NewFFQueue(ctx, QueuePollInterval, conf.NetPullingInterval),
+		queueGetRecords:  queue.NewFFQueue(ctx, QueuePollInterval, conf.NetPullingInterval),
 		queuePushRecords: queue.NewSyncQueue(ctx),
 	}
 
