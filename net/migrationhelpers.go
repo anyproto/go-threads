@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/ipfs/go-cid"
-	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p/core/peer"
 	lstore "github.com/textileio/go-threads/core/logstore"
 	"github.com/textileio/go-threads/core/thread"
 )
@@ -87,4 +87,3 @@ func (n *net) recountHeads(ctx context.Context) {
 		log.Error("there were errors in counting")
 	}
 }
-
