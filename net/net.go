@@ -54,9 +54,6 @@ var (
 	// QueuePollInterval is the polling interval for the call queue.
 	QueuePollInterval = time.Millisecond * 500
 
-	//between automatic edge exchanges.
-	PullInterval = time.Second * 10
-
 	// EventBusCapacity is the buffer size of local event bus listeners.
 	EventBusCapacity = 1
 
