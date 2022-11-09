@@ -1633,7 +1633,7 @@ PullCycle:
 			log.Errorf("error listing threads: %s", err)
 			return
 		}
-		log.Infof("pulling %d threads", len(ts))
+		log.Debugf("pulling %d threads", len(ts))
 
 		if len(ts) == 0 {
 			// if there are no threads served, just wait and retry
