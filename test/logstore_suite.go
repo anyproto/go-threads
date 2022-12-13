@@ -11,9 +11,9 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	pstore "github.com/libp2p/go-libp2p/core/peerstore"
 	ma "github.com/multiformats/go-multiaddr"
-	sym "github.com/textileio/crypto/symmetric"
 	core "github.com/textileio/go-threads/core/logstore"
 	"github.com/textileio/go-threads/core/thread"
+	sym "github.com/textileio/go-threads/crypto/symmetric"
 )
 
 var threadstoreSuite = map[string]func(core.Logstore) func(*testing.T){

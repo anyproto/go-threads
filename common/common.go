@@ -102,7 +102,7 @@ func DefaultNetwork(opts ...NetOption) (NetBoostrapper, error) {
 		return nil, fin.Cleanup(err)
 	}
 
-	lite, err := ipfslite.New(ctx, litestore, h, d, nil)
+	lite, err := ipfslite.New(ctx, litestore, nil, h, d, nil)
 	if err != nil {
 		return nil, fin.Cleanup(err)
 	}

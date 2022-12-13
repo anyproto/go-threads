@@ -11,8 +11,8 @@ import (
 	ma "github.com/multiformats/go-multiaddr"
 	mh "github.com/multiformats/go-multihash"
 	varint "github.com/multiformats/go-varint"
-	sym "github.com/textileio/crypto/symmetric"
 	"github.com/textileio/go-threads/core/thread"
+	sym "github.com/textileio/go-threads/crypto/symmetric"
 )
 
 // customGogoType aggregates the interfaces that custom Gogo types need to implement.
