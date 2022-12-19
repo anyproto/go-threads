@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"github.com/multiformats/go-base32"
 	"sort"
 	"sync"
 	"time"
@@ -20,7 +21,6 @@ import (
 	"github.com/textileio/go-threads/core/thread"
 	pb "github.com/textileio/go-threads/net/pb"
 	"github.com/textileio/go-threads/util"
-	"github.com/whyrusleeping/base32"
 )
 
 type ttlWriteMode int
@@ -78,10 +78,10 @@ type cacheKey struct {
 // ARC cache, the size of which is adjustable via Options.CacheSize.
 //
 // The user has a choice of two GC algorithms:
-//  - full-purge GC (default): performs a full visit of the store with periodicity Options.GCPurgeInterval. Useful when
-//    the range of possible TTL values is small and the values themselves are also extreme, e.g. 10 minutes or
-//    permanent, popular values used in other libp2p modules. In this cited case, optimizing with lookahead windows
-//    makes little sense.
+//   - full-purge GC (default): performs a full visit of the store with periodicity Options.GCPurgeInterval. Useful when
+//     the range of possible TTL values is small and the values themselves are also extreme, e.g. 10 minutes or
+//     permanent, popular values used in other libp2p modules. In this cited case, optimizing with lookahead windows
+//     makes little sense.
 func NewAddrBook(ctx context.Context, ds ds.Batching, opts Options) (*DsAddrBook, error) {
 	ctx, cancelFn := context.WithCancel(ctx)
 	ab := &DsAddrBook{

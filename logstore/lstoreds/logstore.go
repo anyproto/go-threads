@@ -7,10 +7,10 @@ import (
 	ds "github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/query"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/multiformats/go-base32"
 	core "github.com/textileio/go-threads/core/logstore"
 	"github.com/textileio/go-threads/core/thread"
 	lstore "github.com/textileio/go-threads/logstore"
-	"github.com/whyrusleeping/base32"
 )
 
 // Define if storage will accept empty dumps.

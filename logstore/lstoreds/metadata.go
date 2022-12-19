@@ -8,9 +8,9 @@ import (
 
 	ds "github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/query"
+	"github.com/multiformats/go-base32"
 	core "github.com/textileio/go-threads/core/logstore"
 	"github.com/textileio/go-threads/core/thread"
-	"github.com/whyrusleeping/base32"
 )
 
 // Thread metadata is stored in db key pattern:
