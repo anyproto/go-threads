@@ -198,10 +198,10 @@ require (
 	nhooyr.io/websocket v1.8.7 // indirect
 )
 
-replace github.com/dgraph-io/badger/v3 => github.com/anytypeio/badger/v3 v3.0.0-20220504124523-ca79ca5ff94d
+replace github.com/dgraph-io/badger/v3 => github.com/anyproto/badger/v3 v3.0.0-20220504124523-ca79ca5ff94d
 
-replace github.com/textileio/go-ds-badger3 => github.com/anytypeio/go-ds-badger3 v0.3.1-0.20221103102622-3233d4e13cb8
+replace github.com/textileio/go-ds-badger3 => github.com/anyproto/go-ds-badger3 v0.3.1-0.20230524095230-434cf6346d9b
 
-replace github.com/hsanjuan/ipfs-lite => github.com/anytypeio/ipfs-lite v1.4.3-0.20221213154513-adb3ebf9381c
+replace github.com/hsanjuan/ipfs-lite => github.com/anyproto/ipfs-lite v1.4.3-0.20221213154513-adb3ebf9381c
 
-replace github.com/textileio/go-libp2p-pubsub-rpc => github.com/anytypeio/go-libp2p-pubsub-rpc v0.0.10-0.20221213171524-df44a6b1795d
+replace github.com/textileio/go-libp2p-pubsub-rpc => github.com/anyproto/go-libp2p-pubsub-rpc v0.0.10-0.20221213171524-df44a6b1795d
